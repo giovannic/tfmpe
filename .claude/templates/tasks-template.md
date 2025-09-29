@@ -19,7 +19,6 @@
 - **Specify files**: Always include exact file paths to create/modify
 - **Include implementation details** as bullet points
 - Reference requirements using: `_Requirements: X.Y, Z.A_`
-- Prefer task parallelism, avoid unnecessary `Requirements`
 - Reference existing code to leverage using: `_Leverage: path/to/file_1, path/to/file_2`
 - Focus only on coding tasks (no deployment, user testing, etc.)
 - **Avoid broad terms**: No "system", "integration", "complete" in task titles

@@ -57,7 +57,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Include import structure placeholder following structure.md ordering
   - Purpose: Establish importable package entry point
   - _Leverage: structure.md import patterns_
-  - _Requirements: 2.1, 2.2_
+  - _Requirements: 2.1, 2.3_
 
 - [ ] 3. Create metrics module in tfmpe/metrics/__init__.py
   - File: tfmpe/metrics/__init__.py
@@ -65,7 +65,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add placeholder __all__ list for future exports
   - Purpose: Establish metrics module structure
   - _Leverage: structure.md module organization_
-  - _Requirements: 2.1_
+  - _Requirements: 2.1, 2.4_
 
 - [ ] 4. Create estimators module in tfmpe/estimators/__init__.py
   - File: tfmpe/estimators/__init__.py
@@ -73,7 +73,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add placeholder __all__ list for future exports
   - Purpose: Establish estimators module structure
   - _Leverage: structure.md module organization_
-  - _Requirements: 2.1_
+  - _Requirements: 2.1, 2.4_
 
 - [ ] 5. Create bijectors module in tfmpe/bijectors/__init__.py
   - File: tfmpe/bijectors/__init__.py
@@ -81,7 +81,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add placeholder __all__ list for future exports
   - Purpose: Establish bijectors module structure
   - _Leverage: structure.md module organization_
-  - _Requirements: 2.1_
+  - _Requirements: 2.1, 2.4_
 
 - [ ] 6. Create preprocessing module in tfmpe/preprocessing/__init__.py
   - File: tfmpe/preprocessing/__init__.py
@@ -89,7 +89,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add placeholder __all__ list for future exports
   - Purpose: Establish preprocessing module structure
   - _Leverage: structure.md module organization_
-  - _Requirements: 2.1_
+  - _Requirements: 2.1, 2.4_
 
 - [ ] 7. Create sampling module in tfmpe/sampling/__init__.py
   - File: tfmpe/sampling/__init__.py
@@ -97,7 +97,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add placeholder __all__ list for future exports
   - Purpose: Establish sampling module structure
   - _Leverage: structure.md module organization_
-  - _Requirements: 2.1_
+  - _Requirements: 2.1, 2.4_
 
 - [ ] 8. Create neural network module in tfmpe/nn/__init__.py
   - File: tfmpe/nn/__init__.py
@@ -105,7 +105,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add placeholder __all__ list for future exports
   - Purpose: Establish neural network module structure
   - _Leverage: structure.md module organization_
-  - _Requirements: 2.1_
+  - _Requirements: 2.1, 2.4_
 
 - [ ] 9. Create transformer submodule in tfmpe/nn/transformer/__init__.py
   - File: tfmpe/nn/transformer/__init__.py
@@ -113,7 +113,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add placeholder __all__ list for future exports
   - Purpose: Establish transformer submodule structure
   - _Leverage: structure.md module organization, legacy transformer structure_
-  - _Requirements: 2.1_
+  - _Requirements: 2.2, 2.4_
 
 - [ ] 10. Create test directory structure in test/__init__.py and conftest.py
   - Files: test/__init__.py, test/conftest.py
@@ -122,7 +122,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add sample fixture structure for future JAX/numpy array testing
   - Purpose: Establish test infrastructure foundation
   - _Leverage: sfmpe_legacy/test/conftest.py patterns_
-  - _Requirements: None_
+  - _Requirements: 3.1, 3.4_
 
 - [ ] 11. Create test module directories matching package structure
   - Files: test/test_metrics/__init__.py, test/test_estimators/__init__.py, test/test_bijectors/__init__.py, test/test_preprocessing/__init__.py, test/test_sampling/__init__.py, test/test_nn/__init__.py
@@ -130,7 +130,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Mirror tfmpe/ package structure in test/ directory
   - Purpose: Establish parallel test structure for future implementations
   - _Leverage: structure.md testing organization_
-  - _Requirements: None_
+  - _Requirements: 3.3_
 
 - [ ] 12. Create README.md with project documentation
   - File: README.md
@@ -140,7 +140,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Include placeholder sections for usage examples and contribution guidelines
   - Purpose: Provide clear project introduction and setup guidance
   - _Leverage: sfmpe_legacy/README.md structure, CLAUDE.md development commands_
-  - _Requirements: None_
+  - _Requirements: 5.1_
 
 - [ ] 13. Create NEWS.md with changelog structure
   - File: NEWS.md
@@ -149,7 +149,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Include initial v0.1.0 placeholder entry
   - Purpose: Establish version history tracking structure
   - _Leverage: standard changelog conventions_
-  - _Requirements: None_
+  - _Requirements: 5.2_
 
 - [ ] 14. Create mkdocs.yml for documentation generation
   - File: mkdocs.yml
@@ -158,7 +158,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Configure mkdocstrings plugin for automatic API docs
   - Purpose: Enable documentation generation infrastructure
   - _Leverage: legacy documentation patterns_
-  - _Requirements: None_
+  - _Requirements: 5.3_
 
 - [ ] 15. Create basic docs directory structure
   - Files: docs/index.md, docs/api.md
@@ -167,7 +167,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add api.md placeholder for future API documentation
   - Purpose: Establish documentation content structure
   - _Leverage: mkdocs conventions_
-  - _Requirements: None_
+  - _Requirements: 5.4_
 
 - [ ] 16. Create GitHub Actions CI workflow in .github/workflows/ci.yml
   - File: .github/workflows/ci.yml
@@ -178,7 +178,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - Add job for testing documentation builds with mkdocs
   - Purpose: Automate quality checks and testing
   - _Leverage: sfmpe_legacy/.github/workflows/ci.yaml patterns_
-  - _Requirements: None_
+  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
 
 - [ ] 17. Update .gitignore for additional Python project patterns
   - File: .gitignore (modify existing)
