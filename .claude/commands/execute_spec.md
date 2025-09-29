@@ -24,7 +24,12 @@ This is Phase 4 of the spec workflow. Your goal is to implement individual tasks
 
 **Step 2: Set up an execution environment**
 
-Set up a git worktree at `worktrees/feat_{feature_name}_{task}` for a sub-agent
+Set up a git worktree for a sub-agent with:
+
+```sh
+git branch feat/{feature_name}_{task_id}
+git worktree worktrees/feat_{feature_name}_{task} feat/{feature_name}_{task_id}`
+```
 
 **Step 3: Execute with a sub-agent**
 
@@ -43,6 +48,7 @@ Execute one task at a time with a sub-agent in the worktree with the context:
 ## Notes
 
  - Follow all project conventions and leverage existing code
+ - [CONTEXT FOR IMPLEMENTING IN THE WORKTREE]
 ```
 
 **Step 4: Validate the implementation**
