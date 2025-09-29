@@ -1,10 +1,10 @@
-# Spec Create Command
+# Create Spec Command
 
 Create a new feature specification following the complete spec-driven workflow.
 
 ## Usage
 ```
-/spec-create <feature-name> [description]
+/create_spec <feature-name> [description]
 ```
 
 ## Workflow Philosophy

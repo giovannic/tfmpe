@@ -10,9 +10,13 @@ __pycache__/
 
 # Environments
 env
+worktrees
 
 # outputs
 examples/outputs
 
 # legacy
 sfmpe_legacy
+
+# docs
+site

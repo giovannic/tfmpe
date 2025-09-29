@@ -46,31 +46,35 @@
   - _Leverage: existing type definitions in src/base_types.py_
   - _Requirements: 1.1_
 
-- [ ] 2. Create data loader class in src/data/loader.py
-  - File: src/data/loader.py
-  - Implement DataLoader class with numpy/JAX array validation
-  - Add methods for loading from CSV, HDF5, and numpy formats
-  - Purpose: Provide standardized data ingestion interface
-  - _Leverage: src/utils/validation.py, src/types.py_
-  - _Requirements: 2.1_
+- [ ] 2.0 Implement data loading module
+  - Purpose: Create complete data loading and preprocessing pipeline
+  - _Requirements: 2.1, 2.2, 2.3_
 
-- [ ] 3. Add preprocessing methods to loader.py
-  - File: src/data/loader.py (continue from task 2)
-  - Implement normalization, standardization, and filtering methods
-  - Add data shape validation and missing value handling
-  - Purpose: Complete data preprocessing functionality
-  - _Leverage: existing preprocessing utilities in src/utils/preprocessing.py_
-  - _Requirements: 2.2, 2.3_
+  - [ ] 2.1 Create data loader class in src/data/loader.py
+    - File: src/data/loader.py
+    - Implement DataLoader class with numpy/JAX array validation
+    - Add methods for loading from CSV, HDF5, and numpy formats
+    - Purpose: Provide standardized data ingestion interface
+    - _Leverage: src/utils/validation.py, src/types.py_
+    - _Requirements: 2.1_
 
-- [ ] 4. Create data loader unit tests in test/data/test_loader.py
-  - File: test/data/test_loader.py
-  - Write pytest tests for data loading and validation
-  - Use numpy.testing for array equality assertions
-  - Purpose: Ensure data loading reliability and catch regressions
-  - _Leverage: test/fixtures/sample_data.py, test/helpers/array_utils.py_
-  - _Requirements: 2.1, 2.2_
+  - [ ] 2.2 Add preprocessing methods to loader.py
+    - File: src/data/loader.py (continue from task 2.1)
+    - Implement normalization, standardization, and filtering methods
+    - Add data shape validation and missing value handling
+    - Purpose: Complete data preprocessing functionality
+    - _Leverage: existing preprocessing utilities in src/utils/preprocessing.py_
+    - _Requirements: 2.2, 2.3_
 
-- [ ] 5. Create optimizer interface in src/optimization/base.py
+  - [ ] 2.3 Create data loader unit tests in test/data/test_loader.py
+    - File: test/data/test_loader.py
+    - Write pytest tests for data loading and validation
+    - Use numpy.testing for array equality assertions
+    - Purpose: Ensure data loading reliability and catch regressions
+    - _Leverage: test/fixtures/sample_data.py, test/helpers/array_utils.py_
+    - _Requirements: 2.1, 2.2_
+
+- [ ] 3. Create optimizer interface in src/optimization/base.py
   - File: src/optimization/base.py
   - Define abstract base class for optimization algorithms
   - Add type annotations for gradients and parameters
@@ -78,7 +82,7 @@
   - _Leverage: existing base classes in src/base.py_
   - _Requirements: 3.1_
 
-- [ ] 6. Implement SGD optimizer in src/optimization/sgd.py
+- [ ] 4. Implement SGD optimizer in src/optimization/sgd.py
   - File: src/optimization/sgd.py
   - Create SGD class with JAX-based gradient updates
   - Add momentum and learning rate scheduling support
@@ -86,7 +90,7 @@
   - _Leverage: src/optimization/base.py, src/utils/math_ops.py_
   - _Requirements: 3.2_
 
-- [ ] 7. Add optimizer to package initialization in src/__init__.py
+- [ ] 5. Add optimizer to package initialization in src/__init__.py
   - File: src/__init__.py (modify existing)
   - Import and expose SGD optimizer in public API
   - Update __all__ list with new optimizer classes
@@ -94,7 +98,7 @@
   - _Leverage: existing imports in src/__init__.py_
   - _Requirements: 3.1_
 
-- [ ] 8. Create optimizer unit tests in test/optimization/test_sgd.py
+- [ ] 6. Create optimizer unit tests in test/optimization/test_sgd.py
   - File: test/optimization/test_sgd.py
   - Write tests for gradient updates and convergence behavior
   - Test parameter updates with known analytical solutions
@@ -102,7 +106,7 @@
   - _Leverage: test/helpers/optimization_utils.py, test/fixtures/functions.py_
   - _Requirements: 3.2, 3.3_
 
-- [ ] 9. Create visualization functions in src/plotting/results.py
+- [ ] 7. Create visualization functions in src/plotting/results.py
   - File: src/plotting/results.py
   - Implement plot_training_curves function with matplotlib
   - Add plot_parameter_evolution for optimization visualization
@@ -110,7 +114,7 @@
   - _Leverage: src/utils/plotting_helpers.py_
   - _Requirements: 4.1_
 
-- [ ] 10. Add model evaluation metrics in src/metrics/evaluation.py
+- [ ] 8. Add model evaluation metrics in src/metrics/evaluation.py
   - File: src/metrics/evaluation.py
   - Implement MSE, MAE, R-squared calculation functions
   - Add statistical significance tests using scipy.stats
@@ -118,7 +122,7 @@
   - _Leverage: src/utils/stats.py_
   - _Requirements: 4.2_
 
-- [ ] 11. Create integration test in test/integration/test_workflow.py
+- [ ] 9. Create integration test in test/integration/test_workflow.py
   - File: test/integration/test_workflow.py
   - Write end-to-end test using data loading → optimization → evaluation
   - Test complete scientific workflow with synthetic data
@@ -126,7 +130,7 @@
   - _Leverage: test/fixtures/synthetic_data.py, test/helpers/workflow_utils.py_
   - _Requirements: 5.1_
 
-- [ ] 12. Add example notebook in examples/basic_usage.ipynb
+- [ ] 10. Add example notebook in examples/basic_usage.ipynb
   - File: examples/basic_usage.ipynb
   - Create Jupyter notebook demonstrating package usage
   - Include data loading, model fitting, and result visualization
