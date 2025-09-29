@@ -18,9 +18,9 @@ This is Phase 4 of the spec workflow. Your goal is to implement individual tasks
 
 **Step 1: Load Context**
 
-`.claude/steering` - steering documents
-`.claude/specs/{feature_name}` - feature spec
-`.claude/specs/{feature_name}/tasks` - tasks
+`.claude/steering/*` - steering documents
+`.claude/specs/{feature_name}/*` - feature specs
+`.claude/specs/{feature_name}/tasks.md` - tasks
 
 **Step 2: Set up an execution environment**
 
@@ -61,5 +61,5 @@ Execute one task at a time with a sub-agent in the worktree with the context:
 
   - Present a completion summary and wait for approval
   - Merge and remove the git worktree
-  - Mark the task as complete
+  - Mark the task as complete in `.claude/specs/{feature_name}/tasks.md`
   - Wait for approval before moving on to the next task

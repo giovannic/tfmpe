@@ -39,7 +39,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
 
 ## Tasks
 
-- [ ] 1. Create project configuration in pyproject.toml
+- [X] 1. Create project configuration in pyproject.toml
   - File: pyproject.toml
   - Define project metadata (name="tfmpe", description, authors, Python >=3.10)
   - Add default dependencies: jax, flax, optax, jaxtyping
