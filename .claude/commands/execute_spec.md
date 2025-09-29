@@ -24,32 +24,16 @@ This is Phase 4 of the spec workflow. Your goal is to implement individual tasks
 
 **Step 2: Set up an execution environment**
 
-Set up a git worktree for a sub-agent with:
+Set up a git worktree with:
 
 ```sh
 git branch feat/{feature_name}_{task_id}
 git worktree worktrees/feat_{feature_name}_{task} feat/{feature_name}_{task_id}`
 ```
+**Step 3: Execute task**
 
-**Step 3: Execute with a sub-agent**
-
-Execute one task at a time with a sub-agent in the worktree with the context:
-
-```
-## Steering Context
-[PASTE THE STEERING CONTEXT HERE]
-
-## Specification Context
-[PASTE THE RELEVANT REQUIREMENTS AND DESIGN SECTIONS HERE]
-
-## Task Details
-[PASTE THE TASK DETAILS HERE]
-
-## Notes
-
- - Follow all project conventions and leverage existing code
- - [CONTEXT FOR IMPLEMENTING IN THE WORKTREE]
-```
+  - Execute one task at a time in the worktree.
+  - Make sure to prepend `. ../../env/bin/activate` to your python calls
 
 **Step 4: Validate the implementation**
 
@@ -60,6 +44,6 @@ Execute one task at a time with a sub-agent in the worktree with the context:
 **Step 5: Mark the task as complete**
 
   - Present a completion summary and wait for approval
-  - Merge and remove the git worktree
   - Mark the task as complete in `.claude/specs/{feature_name}/tasks.md`
+  - Merge and remove the git worktree
   - Wait for approval before moving on to the next task
