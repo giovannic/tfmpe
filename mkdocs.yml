@@ -1,0 +1,30 @@
+site_name: TFMPE Documentation
+site_description: >
+  Tokenised Flow Matching for Posterior Estimation - A JAX-based library
+  for neural posterior estimation with flow matching
+repo_url: https://github.com/giovannic/tfmpe
+repo_name: giovannic/tfmpe
+
+theme:
+  name: material
+
+nav:
+  - Home: index.md
+  - API Reference: api.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_source: true
+
+markdown_extensions:
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
