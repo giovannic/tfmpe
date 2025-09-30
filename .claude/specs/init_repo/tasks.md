@@ -131,7 +131,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - _Leverage: structure.md testing organization_
   - _Requirements: 3.3_
 
-- [ ] 12. Create README.md with project documentation
+- [X] 12. Create README.md with project documentation
   - File: README.md
   - Add TFMPE project description and purpose
   - Include installation instructions for different dependency groups
@@ -141,7 +141,7 @@ Tasks follow structure.md conventions for package organization, tech.md standard
   - _Leverage: sfmpe_legacy/README.md structure, CLAUDE.md development commands_
   - _Requirements: 5.1_
 
-- [ ] 13. Create NEWS.md with changelog structure
+- [X] 13. Create NEWS.md with changelog structure
   - File: NEWS.md
   - Create changelog format with version headers
   - Add categories: Added, Changed, Fixed, Removed
