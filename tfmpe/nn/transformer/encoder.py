@@ -2,10 +2,34 @@
 
 from typing import Callable, Optional
 
+import jax
+import jax.numpy as jnp
 from jaxtyping import Array
 from flax import nnx
+from flax.nnx.nn.attention import dot_product_attention
+from .linear_attention import linear_attention
 
 from .config import TransformerConfig
+
+
+def cudnn_attention(
+    query: Array,
+    key: Array,
+    value: Array,
+    mask: Array | None = None,
+    **kwargs,
+) -> Array:
+    """Flash attention via cuDNN backend.
+
+    Thin wrapper around jax.nn.dot_product_attention that forces
+    the cuDNN implementation and discards Flax-specific kwargs
+    (dropout_rng, dropout_rate, etc.).
+    """
+    if mask is not None:
+        mask = mask.astype(jnp.bool_)
+    return jax.nn.dot_product_attention(
+        query, key, value, mask=mask, implementation="cudnn"
+    )
 
 class FFLayer(nnx.Module):
     """Single feedforward layer with linear, dropout, and activation.
@@ -28,6 +52,7 @@ class FFLayer(nnx.Module):
         dropout: float,
         activation: Callable,
         rngs: nnx.Rngs,
+        dtype: jnp.dtype = jnp.float32,
     ) -> None:
         """Initialize feedforward layer.
 
@@ -41,8 +66,10 @@ class FFLayer(nnx.Module):
             Activation function
         rngs : nnx.Rngs
             Random number generator state
+        dtype : jnp.dtype
+            Dtype for linear layer parameters
         """
-        self.linear = nnx.Linear(dim, dim, rngs=rngs)
+        self.linear = nnx.Linear(dim, dim, dtype=dtype, rngs=rngs)
         self.dropout = nnx.Dropout(dropout, rngs=rngs)
         self.activation = activation
 
@@ -99,12 +126,13 @@ class MLP(nnx.Module):
         dim = config.latent_dim
         dropout = config.dropout
         activation = config.activation
+        ops_dtype = config.ops_dtype
 
         @nnx.split_rngs(splits=n_ff)
         @nnx.vmap(in_axes=(0,), out_axes=0)
         def create_layer(rngs: nnx.Rngs) -> FFLayer:
             """Create a single feedforward layer."""
-            return FFLayer(dim, dropout, activation, rngs=rngs)
+            return FFLayer(dim, dropout, activation, rngs=rngs, dtype=ops_dtype)
 
         self.layers = create_layer(rngs)
         self.n_layers = n_ff
@@ -127,6 +155,9 @@ class MLP(nnx.Module):
         """
 
         @nnx.scan(in_axes=(nnx.Carry, 0), out_axes=nnx.Carry)
+        @nnx.remat(
+            policy=jax.checkpoint_policies.dots_with_no_batch_dims_saveable,
+        )
         def forward(
             x: Array,
             model: FFLayer,
@@ -174,6 +205,20 @@ class EncoderBlock(nnx.Module):
         latent_dim = config.latent_dim
         n_heads = config.n_heads
 
+        if config.attention == 'softmax':
+            attention_fn = dot_product_attention
+        elif config.attention == 'linear':
+            attention_fn = linear_attention
+        elif config.attention == 'cudnn':
+            attention_fn = cudnn_attention
+        else:
+            raise ValueError(
+                "TransformerConfig specifies unknown attention: {config.attention}"
+            )
+
+        self.ops_dtype = config.ops_dtype
+        self.sensitive_ops_dtype = config.sensitive_ops_dtype
+
         self.attention = nnx.MultiHeadAttention(
             num_heads=n_heads,
             in_features=latent_dim,
@@ -182,17 +227,19 @@ class EncoderBlock(nnx.Module):
             broadcast_dropout=False,
             dropout_rate=config.dropout,
             decode=False,
+            dtype=config.sensitive_ops_dtype,
+            attention_fn=attention_fn,
             rngs=rngs,
         )
         self.att_norm = nnx.LayerNorm(
             num_features=latent_dim,
-            dtype=float,
+            dtype=config.sensitive_ops_dtype,
             rngs=rngs,
         )
         self.mlp = MLP(config=config, rngs=rngs)
         self.ff_norm = nnx.LayerNorm(
             num_features=latent_dim,
-            dtype=float,
+            dtype=config.sensitive_ops_dtype,
             rngs=rngs,
         )
 
@@ -223,15 +270,17 @@ class EncoderBlock(nnx.Module):
             Output array of shape (..., latent_dim)
         """
         # Self-attention with residual and norm
+        x_op = x.astype(self.ops_dtype)
         attn_out = self.attention(
-            x, x, x, mask=mask, deterministic=deterministic
+            x_op, x_op, x_op, mask=mask, deterministic=deterministic
         )
-        x = x + attn_out
+        x = x.astype(self.sensitive_ops_dtype) + attn_out.astype(self.sensitive_ops_dtype)
         x = self.att_norm(x)
 
         # Feedforward with residual and norm
-        ff_out = self.mlp(x)
-        x = x + ff_out
+        ff_out = self.mlp(x.astype(self.ops_dtype))
+        x = x.astype(self.sensitive_ops_dtype) + ff_out.astype(self.sensitive_ops_dtype)
         x = self.ff_norm(x)
 
-        return x
+        # Cast back to ops_dtype for scan carry compatibility
+        return x.astype(self.ops_dtype)

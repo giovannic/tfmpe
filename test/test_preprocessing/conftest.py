@@ -3,7 +3,6 @@
 import jax.numpy as jnp
 import pytest
 
-
 @pytest.fixture
 def simple_pytree():
     """Simple pytree with 3 keys, no sample dimensions.

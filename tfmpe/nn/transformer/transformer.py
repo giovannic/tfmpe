@@ -71,10 +71,14 @@ class Transformer(nnx.Module):
             n_labels=n_labels,
             label_dim=config.label_dim,
             pos_dim=config.pos_dim,
+            max_positions=config.max_positions,
             latent_dim=config.latent_dim,
             rngs=rngs,
             f_in_in_dim=f_in_in_dim,
-            f_in_out_dim=config.index_out_dim
+            f_in_out_dim=config.index_out_dim,
+            group_dim=config.group_dim,
+            max_groups=config.max_groups,
+            ops_dtype=config.ops_dtype,
         )
 
         # Create encoder blocks via vmap
@@ -90,6 +94,7 @@ class Transformer(nnx.Module):
         self.output_linear = nnx.Linear(
             config.latent_dim,
             self.value_dim,
+            dtype=config.ops_dtype,
             rngs=rngs,
         )
 
@@ -120,7 +125,20 @@ class Transformer(nnx.Module):
         x = self.embedding(tokens, time)
 
         # Apply encoder blocks sequentially via scan
+        if tokens.padding_mask is not None:
+            sample_shape = tokens.sample_shape
+            n_tokens = tokens.data.shape[tokens.sample_ndims]
+            n_heads = self.config.n_heads
+            mask = tokens.padding_mask[:, None, None, :]
+            mask = jnp.broadcast_to(mask, sample_shape + (n_heads, n_tokens, n_tokens))
+        else:
+            mask = None
+
+        # Apply encoder blocks sequentially via scan
         @nnx.scan(in_axes=(nnx.Carry, 0), out_axes=nnx.Carry)
+        @nnx.remat(
+            policy=jax.checkpoint_policies.dots_with_no_batch_dims_saveable,
+        )
         def forward(
             x: Array,
             encoder_block: EncoderBlock,
@@ -128,7 +146,7 @@ class Transformer(nnx.Module):
             """Apply a single encoder block and return updated state."""
             x = encoder_block(
                 x,
-                mask=None,
+                mask=mask,
                 deterministic=deterministic,
             )
             return x

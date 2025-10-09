@@ -7,7 +7,6 @@ from jaxtyping import Array
 
 import jax.numpy as jnp
 
-
 @dataclass
 class Labeller:
     """
@@ -25,7 +24,6 @@ class Labeller:
         generate label arrays for token data. All values must be
         unique (no collisions allowed).
     """
-
     label_map: Dict[str, int]
 
     def __post_init__(self) -> None:
@@ -134,4 +132,3 @@ class SliceInfo(NamedTuple):
     offset: int
     event_shape: Tuple[int, ...]
     batch_shape: Tuple[int, ...]
-

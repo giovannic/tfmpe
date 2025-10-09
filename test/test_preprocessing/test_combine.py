@@ -240,7 +240,8 @@ def test_combine_functional_inputs_with_padding():
         condition=[],
         functional_inputs=func_inputs1,
         sample_ndims=1,
-        batch_ndims={'a': 1}
+        batch_ndims={'a': 1},
+        pad_to_even=False
     )
 
     tokens2 = Tokens.from_pytree(
@@ -248,10 +249,11 @@ def test_combine_functional_inputs_with_padding():
         condition=[],
         functional_inputs=func_inputs2,
         sample_ndims=1,
-        batch_ndims={'a': 1}
+        batch_ndims={'a': 1},
+        pad_to_even=False
     )
 
-    combined = combine_tokens(tokens1, tokens2)
+    combined = combine_tokens(tokens1, tokens2, pad_to_even=False)
 
     # Check functional_inputs is not None
     assert combined.functional_inputs is not None

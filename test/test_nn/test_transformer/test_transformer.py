@@ -107,6 +107,7 @@ class TestTransformerForwardPass:
             labeller=labeller,
             condition=['context'],
             sample_ndims=1,
+            pad_to_even=False,
         )
 
         config = TransformerConfig(
@@ -194,6 +195,7 @@ class TestTransformerSampleDimensions:
             labeller=labeller,
             sample_ndims=2,
             batch_ndims={'context': 1},
+            pad_to_even=False,
         )
 
         config = TransformerConfig(

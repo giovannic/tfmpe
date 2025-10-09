@@ -1,3 +1,5 @@
 """Parameter estimators."""
 
-__all__ = []
+from .tfmpe import TFMPE
+
+__all__ = ["TFMPE"]

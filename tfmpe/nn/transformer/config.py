@@ -2,7 +2,9 @@
 
 from dataclasses import dataclass, field
 from typing import Callable
+from typing import Literal
 
+import jax.numpy as jnp
 from flax import nnx
 
 
@@ -48,8 +50,14 @@ class TransformerConfig:
     label_dim: int = 32
     index_out_dim: int = 64
     pos_dim: int = 8
-    dropout: float = 0.1
+    max_positions: int = 128
+    group_dim: int = 8
+    max_groups: int = 128
+    dropout: float = 0.0
+    attention: Literal['linear'] | Literal['softmax'] | Literal['cudnn'] = 'softmax'
     activation: Callable = field(default_factory=lambda: nnx.relu)
+    ops_dtype: jnp.dtype = jnp.bfloat16
+    sensitive_ops_dtype: jnp.dtype = jnp.bfloat16
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization.

@@ -8,7 +8,9 @@ import dataclasses
 
 from .tokens import Tokens
 
-def combine_tokens(tokens1: Tokens, tokens2: Tokens) -> Tokens:
+def combine_tokens(
+    tokens1: Tokens, tokens2: Tokens, pad_to_even: bool = True
+) -> Tokens:
     """
     Combine two Tokens objects by concatenating samples and padding tokens.
 
@@ -24,8 +26,6 @@ def combine_tokens(tokens1: Tokens, tokens2: Tokens) -> Tokens:
     Tokens
         Combined Tokens with concatenated samples and padded tokens
 
-    Raises
-    ------
     ValueError
         If tokens have incompatible functional_inputs or
         incompatible sample_ndims
@@ -72,6 +72,10 @@ def combine_tokens(tokens1: Tokens, tokens2: Tokens) -> Tokens:
         tokens1.data.shape[tokens1.sample_ndims] - tokens1.partition_idx,
         tokens2.data.shape[tokens2.sample_ndims] - tokens2.partition_idx,
     )
+
+    # Pad target dimension so total sequence length is even (cuDNN flash attn)
+    if pad_to_even and (max_n_condition + max_n_target) % 2 == 1:
+        max_n_target += 1
 
     sample_ndims = tokens1.sample_ndims
 

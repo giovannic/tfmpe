@@ -8,7 +8,6 @@ from tfmpe.nn.transformer import Transformer
 from tfmpe.nn.transformer.config import TransformerConfig
 from tfmpe.preprocessing import Labeller, Tokens
 
-
 def create_benchmark_tokens(batch_size: int, seq_len: int) -> Tokens:
     """Create tokens for benchmarking.
 
@@ -39,19 +38,27 @@ def create_benchmark_tokens(batch_size: int, seq_len: int) -> Tokens:
     )
 
 
-BATCH_SIZE = 32
-SEQ_LENS = [10, 50, 100, 200, 500]
+BATCH_SIZE = 100
+SEQ_LENS = [10, 50, 100, 200, 500, 1_000, 10_000]
 N_WARMUP = 3
 
+PRECISION_MODES = {
+    "float32": dict(ops_dtype=jnp.float32, sensitive_ops_dtype=jnp.float32),
+    "bfloat16": dict(ops_dtype=jnp.bfloat16, sensitive_ops_dtype=jnp.bfloat16),
+    "mixed": dict(ops_dtype=jnp.bfloat16, sensitive_ops_dtype=jnp.float32),
+}
 
-def _make_transformer(tokens):
+
+def _make_transformer(tokens, precision_mode="float32"):
     """Create a Transformer and common inputs for benchmarking."""
     config = TransformerConfig(
-        latent_dim=128,
+        latent_dim=256,
         n_encoder=2,
         n_heads=4,
         n_ff=2,
-        label_dim=32,
+        label_dim=8,
+        attention='cudnn',
+        **PRECISION_MODES[precision_mode],
     )
     rngs = nnx.Rngs(0)
     transformer = Transformer(config=config, tokens=tokens, rngs=rngs)
@@ -67,9 +74,10 @@ class TestTransformerBenchmark:
     @pytest.mark.slow
     @pytest.mark.benchmark(group="forward")
     @pytest.mark.parametrize("seq_len", SEQ_LENS)
-    def test_forward_benchmark(self, benchmark, seq_len: int) -> None:
+    @pytest.mark.parametrize("precision_mode", PRECISION_MODES.keys())
+    def test_forward_benchmark(self, benchmark, seq_len: int, precision_mode: str) -> None:
         tokens = create_benchmark_tokens(BATCH_SIZE, seq_len)
-        transformer, time_input = _make_transformer(tokens)
+        transformer, time_input = _make_transformer(tokens, precision_mode)
 
         @nnx.jit
         def forward_fn(model, tokens, t):
@@ -88,9 +96,10 @@ class TestTransformerBenchmark:
     @pytest.mark.slow
     @pytest.mark.benchmark(group="backward")
     @pytest.mark.parametrize("seq_len", SEQ_LENS)
-    def test_backward_benchmark(self, benchmark, seq_len: int) -> None:
+    @pytest.mark.parametrize("precision_mode", PRECISION_MODES.keys())
+    def test_backward_benchmark(self, benchmark, seq_len: int, precision_mode: str) -> None:
         tokens = create_benchmark_tokens(BATCH_SIZE, seq_len)
-        transformer, time_input = _make_transformer(tokens)
+        transformer, time_input = _make_transformer(tokens, precision_mode)
 
         def loss_fn(model):
             output = model(tokens=tokens, time=time_input, deterministic=True)
@@ -109,17 +118,20 @@ class TestTransformerBenchmark:
 
         benchmark.pedantic(run, warmup_rounds=N_WARMUP, rounds=10, iterations=1)
 
-    # ── Memory (hand-rolled) ───────────────────────────────────
+    # ── Memory (peak usage via device.memory_stats) ────────────
+    #
+    # Reports peak_bytes_in_use after warmup+run for each config.
+    # Since peak is monotonic within a process, compare across
+    # precision modes at the same seq_len by running them in
+    # separate pytest-xdist workers or sequential invocations.
 
     @pytest.mark.slow
     @pytest.mark.parametrize("seq_len", SEQ_LENS)
-    def test_forward_peak_memory(self, seq_len: int) -> None:
+    @pytest.mark.parametrize("precision_mode", PRECISION_MODES.keys())
+    def test_forward_peak_memory(self, seq_len: int, precision_mode: str) -> None:
         device = jax.local_devices()[0]
-        if not hasattr(device, "memory_stats"):
-            pytest.skip("Device does not support memory_stats")
-
         tokens = create_benchmark_tokens(BATCH_SIZE, seq_len)
-        transformer, time_input = _make_transformer(tokens)
+        transformer, time_input = _make_transformer(tokens, precision_mode)
 
         @nnx.jit
         def forward_fn(model, tokens, t):
@@ -129,23 +141,20 @@ class TestTransformerBenchmark:
         for _ in range(N_WARMUP):
             forward_fn(transformer, tokens, time_input).block_until_ready()
 
-        _ = device.memory_stats()  # reset baseline
-        forward_fn(transformer, tokens, time_input).block_until_ready()
-
         stats = device.memory_stats()
-        if stats and "peak_bytes_in_use" in stats:
-            peak_mb = stats["peak_bytes_in_use"] / (1024 * 1024)
-            print(f"\nForward peak memory (seq_len={seq_len}): {peak_mb:.2f} MB")
+        if stats is None:
+            pytest.skip("memory_stats() unavailable (platform allocator?)")
+
+        peak_mb = stats["peak_bytes_in_use"] / (1024 * 1024)
+        print(f"\nForward peak memory (seq_len={seq_len}, {precision_mode}): {peak_mb:.2f} MB")
 
     @pytest.mark.slow
     @pytest.mark.parametrize("seq_len", SEQ_LENS)
-    def test_backward_peak_memory(self, seq_len: int) -> None:
+    @pytest.mark.parametrize("precision_mode", PRECISION_MODES.keys())
+    def test_backward_peak_memory(self, seq_len: int, precision_mode: str) -> None:
         device = jax.local_devices()[0]
-        if not hasattr(device, "memory_stats"):
-            pytest.skip("Device does not support memory_stats")
-
         tokens = create_benchmark_tokens(BATCH_SIZE, seq_len)
-        transformer, time_input = _make_transformer(tokens)
+        transformer, time_input = _make_transformer(tokens, precision_mode)
 
         def loss_fn(model):
             output = model(tokens=tokens, time=time_input, deterministic=True)
@@ -158,11 +167,9 @@ class TestTransformerBenchmark:
             loss, _ = grad_fn(transformer)
             loss.block_until_ready()
 
-        _ = device.memory_stats()  # reset baseline
-        loss, _ = grad_fn(transformer)
-        loss.block_until_ready()
-
         stats = device.memory_stats()
-        if stats and "peak_bytes_in_use" in stats:
-            peak_mb = stats["peak_bytes_in_use"] / (1024 * 1024)
-            print(f"\nBackward peak memory (seq_len={seq_len}): {peak_mb:.2f} MB")
+        if stats is None:
+            pytest.skip("memory_stats() unavailable (platform allocator?)")
+
+        peak_mb = stats["peak_bytes_in_use"] / (1024 * 1024)
+        print(f"\nBackward peak memory (seq_len={seq_len}, {precision_mode}): {peak_mb:.2f} MB")

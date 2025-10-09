@@ -26,4 +26,5 @@ def simple_tokens(simple_labeller: Labeller) -> Tokens:
         condition=['obs'],
         sample_ndims=1,
         batch_ndims={'mu': 1, 'obs': 1},
+        pad_to_even=False,
     )

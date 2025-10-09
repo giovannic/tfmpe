@@ -29,6 +29,8 @@ class TestMLP:
             label_dim=32,
             index_out_dim=64,
             dropout=0.1,
+            ops_dtype=jnp.float32,
+            sensitive_ops_dtype=jnp.float32,
         )
 
         mlp = MLP(config=config, rngs=rngs)
@@ -60,6 +62,8 @@ class TestMLP:
             label_dim=16,
             index_out_dim=32,
             dropout=0.1,
+            ops_dtype=jnp.float32,
+            sensitive_ops_dtype=jnp.float32,
         )
 
         mlp = MLP(config=config, rngs=rngs)
@@ -84,6 +88,8 @@ class TestMLP:
             label_dim=32,
             index_out_dim=64,
             dropout=0.5,
+            ops_dtype=jnp.float32,
+            sensitive_ops_dtype=jnp.float32,
         )
 
         mlp = MLP(config=config, rngs=rngs)
@@ -112,6 +118,8 @@ class TestMLP:
             label_dim=16,
             index_out_dim=32,
             dropout=0.1,
+            ops_dtype=jnp.float32,
+            sensitive_ops_dtype=jnp.float32,
         )
 
         mlp = MLP(config=config, rngs=rngs)
