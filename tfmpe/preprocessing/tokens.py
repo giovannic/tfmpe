@@ -120,6 +120,8 @@ class Tokens:
         batch_ndims : Optional[Dict[str, int]], optional
             Number of trailing batch dimensions for each key.
             If None, defaults to 1 for all keys.
+        return_decoder: Optional[bool], optional
+            Whether to return a decoding function
 
         Returns
         -------
@@ -256,6 +258,15 @@ class Tokens:
                 slices,
                 sample_ndims=sample_ndims
             )
+            
+        position = jnp.concatenate([
+            jnp.arange(prod(s.event_shape))
+            for s in slices.values()
+        ])
+        position = jnp.broadcast_to(
+            position.reshape((1,) * sample_ndims + (total_tokens,)),
+            broadcast_shape
+        )
 
         position = jnp.concatenate([
             jnp.arange(prod(s.event_shape))

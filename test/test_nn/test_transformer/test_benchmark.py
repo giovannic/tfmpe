@@ -8,7 +8,6 @@ from tfmpe.nn.transformer import Transformer
 from tfmpe.nn.transformer.config import TransformerConfig
 from tfmpe.preprocessing import Labeller, Tokens
 
-
 def create_benchmark_tokens(batch_size: int, seq_len: int) -> Tokens:
     """Create tokens for benchmarking.
 

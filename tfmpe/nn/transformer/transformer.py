@@ -123,6 +123,16 @@ class Transformer(nnx.Module):
         x = self.embedding(tokens, time)
 
         # Apply encoder blocks sequentially via scan
+        if tokens.padding_mask is not None:
+            sample_shape = tokens.sample_shape
+            n_tokens = tokens.data.shape[tokens.sample_ndims]
+            n_heads = self.config.n_heads
+            mask = tokens.padding_mask[:, None, None, :]
+            mask = jnp.broadcast_to(mask, sample_shape + (n_heads, n_tokens, n_tokens))
+        else:
+            mask = None
+
+        # Apply encoder blocks sequentially via scan
         @nnx.scan(in_axes=(nnx.Carry, 0), out_axes=nnx.Carry)
         def forward(
             x: Array,
@@ -131,7 +141,7 @@ class Transformer(nnx.Module):
             """Apply a single encoder block and return updated state."""
             x = encoder_block(
                 x,
-                mask=None,
+                mask=mask,
                 deterministic=deterministic,
             )
             return x

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Callable
+from typing import Literal
 
 from flax import nnx
 
@@ -49,6 +50,7 @@ class TransformerConfig:
     index_out_dim: int = 64
     pos_dim: int = 8
     dropout: float = 0.1
+    attention: Literal['linear'] | Literal['softmax'] = 'softmax'
     activation: Callable = field(default_factory=lambda: nnx.relu)
 
     def __post_init__(self) -> None:

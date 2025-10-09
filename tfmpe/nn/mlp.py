@@ -63,7 +63,7 @@ class MLP(nnx.Module):
         for _ in range(n_ff):
             layers.append(nnx.Linear(in_dim, latent_dim, rngs=rngs))
             in_dim = latent_dim
-        self.layers = layers
+        self.layers = nnx.List(layers)
 
         self.output_linear = nnx.Linear(latent_dim, output_dim, rngs=rngs)
 

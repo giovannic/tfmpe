@@ -56,14 +56,16 @@ def linear_attention(
     Array
         Shape [batch..., q_length, num_heads, v_depth_per_head]
     """
-    assert mask is None, "Linear attention does not support masking"
-
     # Feature map: ELU + 1 (ensures positive values)
     def feature_map(x: Array) -> Array:
         return jax.nn.elu(x) + 1
 
     q = feature_map(query)
     k = feature_map(key)
+
+    if mask is not None:
+        q = q * mask[..., None]
+        value = value * mask[..., None]
 
     # KV: φ(K)^T @ V -> [batch..., heads, d, v_d]
     kv = jnp.einsum('...lhd,...lhv->...hdv', k, value, precision=precision)

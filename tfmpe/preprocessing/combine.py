@@ -24,8 +24,6 @@ def combine_tokens(tokens1: Tokens, tokens2: Tokens) -> Tokens:
     Tokens
         Combined Tokens with concatenated samples and padded tokens
 
-    Raises
-    ------
     ValueError
         If tokens have incompatible functional_inputs or
         incompatible sample_ndims

@@ -1,0 +1,295 @@
+from jax import numpy as jnp, random as jr, tree
+from flax import nnx
+from jaxtyping import PyTree, Array
+from typing import Tuple, Callable, List, Optional, Any, TypeVar
+from tqdm import tqdm
+
+M = TypeVar('M', bound=nnx.Module)
+
+def fit_fast(
+    model: M,
+    train: PyTree,
+    val: PyTree,
+    loss: Callable[[Any, PyTree, Array], Array],
+    opt: nnx.Optimizer,
+    n_iter: int,
+    batch_size: int,
+    rng: Array,
+) -> Tuple[M, Tuple[Array, Array]]:
+    """Speed-optimized training loop using JIT compilation.
+
+    Uses nnx.scan for fully jittable training loop with batched
+    loss computation.
+
+    Parameters
+    ----------
+    tfmpe : TFMPE
+        TFMPE model to train
+    train_tokens: Tokens
+        Training tokens
+    val_tokens: Tokens
+        Validation tokens
+    opt : nnx.Optimizer
+        NNX optimizer instance already initialized with tfmpe
+    n_iter : int
+        Number of training iterations
+    batch_size : int
+        Number of samples per batch
+    rng : PRNGKeyArray
+        Random number generator key
+
+    Returns
+    -------
+    Tuple[TFMPE, Tuple[Array, Array]]
+        Trained TFMPE instance and tuple of:
+        - training losses shape (n_iter,)
+        - validation losses shape (n_iter,)
+    """
+    n_train = tree.leaves(train)[0].shape[0]
+    n_batches = n_train // batch_size
+
+    # Batch body: process single batch
+    def batch_body(carry, batch_data):
+        model, opt_model = carry
+        (
+            batch,
+            batch_rng,
+        ) = batch_data
+
+        # Compute loss and gradients
+        def model_loss(model):
+            return loss(
+                model,
+                batch,
+                batch_rng
+            )
+
+        batch_loss, grads = nnx.value_and_grad(model_loss)(model)
+
+        # Update optimizer (updates model in-place)
+        opt_model.update(model, grads)
+
+        return (model, opt_model), batch_loss
+
+    # Epoch body: process all batches in epoch
+    def epoch_body(carry, epoch_rng):
+        model, opt_model = carry
+
+        # Shuffle training data
+        epoch_rng, perm_key = jr.split(epoch_rng)
+        perm = jr.permutation(perm_key, n_train)
+
+        shuffled_tokens = tree.map(
+            lambda x: x[perm[:n_batches * batch_size]].reshape(
+                (n_batches, batch_size) + x.shape[1:]
+            ),
+            train,
+        )
+
+        # Generate RNG keys for each batch
+        epoch_rng, batch_rng = jr.split(epoch_rng)
+        batch_rngs = jr.split(batch_rng, n_batches)
+
+        # Stack batch data along first dimension for scanning
+        batch_data = (
+            shuffled_tokens,
+            batch_rngs,
+        )
+
+        # Scan over batches
+        (model, opt_model), batch_losses = nnx.scan(
+            batch_body
+        )((model, opt_model), batch_data)
+
+        # Average training loss across batches
+        train_loss = jnp.mean(batch_losses)
+
+        # Compute validation loss
+        epoch_rng, key_times = jr.split(epoch_rng)
+
+        val_loss = loss(
+            model,
+            val,
+            key_times
+        )
+
+        return (model, opt_model), (train_loss, val_loss)
+
+    # Scan over epochs
+    epoch_rngs = jr.split(rng, n_iter)
+    (model, _), losses = nnx.scan(epoch_body)(
+        (model, opt), epoch_rngs
+    )
+
+    return model, losses
+
+
+def fit_memory_efficient(
+    model: M,
+    train: PyTree,
+    val: Optional[PyTree],
+    opt: nnx.Optimizer,
+    loss: Callable[[Any, PyTree, Array], Array],
+    n_iter: int,
+    batch_size: int,
+    rng: Array,
+    delta: float = 0.0,
+    patience: int = 0,
+) -> Tuple[M, Tuple[Array, Array]]:
+    """Memory-efficient training loop for large datasets.
+
+    Uses Python for loops instead of nnx.scan to reduce memory usage
+    at the cost of speed. Each training step is still JIT-compiled.
+
+    Parameters
+    ----------
+    tfmpe : TFMPE
+        TFMPE model to train
+    train_tokens : Tokens
+        Training tokens
+    val_tokens : Tokens
+        Validation tokens
+    opt : nnx.Optimizer
+        NNX optimizer instance already initialized with tfmpe
+    n_iter : int
+        Number of training iterations
+    batch_size : int
+        Number of samples per batch
+    rng : PRNGKeyArray
+        Random number generator key
+    delta : float, optional
+        Minimum improvement in training loss to reset patience counter.
+        Default is 0.0 (any improvement counts).
+    patience : int, optional
+        Number of epochs to wait for improvement before stopping.
+        Set to 0 to disable early stopping. Default is 0.
+
+    Returns
+    -------
+    Tuple[TFMPE, Tuple[Array, Array]]
+        Trained TFMPE instance (with best weights if early stopped) and tuple of:
+        - training losses shape (n_epochs,) where n_epochs <= n_iter
+        - validation losses shape (n_epochs,) where n_epochs <= n_iter
+    """
+    n_train = tree.leaves(train)[0].shape[0]
+    n_batches = n_train // batch_size
+
+    # JIT-compiled training step
+    @nnx.jit
+    def train_step(
+        model: nnx.Module,
+        opt_model: nnx.Optimizer,
+        batch: PyTree,
+        rng_key: Array,
+    ) -> Array:
+        def model_loss(model: nnx.Module) -> Array:
+            return loss(
+                model,
+                batch,
+                rng_key,
+            )
+
+        batch_loss, grads = nnx.value_and_grad(model_loss)(model)
+        opt_model.update(model, grads)
+        return batch_loss
+
+    # JIT-compiled validation loss
+    @nnx.jit
+    def compute_val_loss(
+        model: nnx.Module,
+        val: PyTree,
+        rng: Array,
+    ) -> Array:
+        return loss(
+            model,
+            val,
+            rng
+        )
+
+    # Pre-split RNG keys for all epochs
+    epoch_rngs = jr.split(rng, n_iter)
+
+    # Accumulate losses in Python lists
+    train_losses_list: List[Array] = []
+    val_losses_list: List[Array] = []
+
+    # Early stopping state
+    best_train_loss = float('inf')
+    epochs_without_improvement = 0
+    best_state = None
+    early_stopping_enabled = patience > 0
+
+    # Python loop over epochs with progress bar
+    pbar = tqdm(range(n_iter), desc="Training")
+    for epoch in pbar:
+        epoch_rng = epoch_rngs[epoch]
+
+        # Shuffle training data
+        epoch_rng, perm_key = jr.split(epoch_rng)
+        perm = jr.permutation(perm_key, n_train)
+
+        # Generate RNG keys for each batch
+        epoch_rng, batch_rng = jr.split(epoch_rng)
+        batch_rngs = jr.split(batch_rng, n_batches)
+
+        # Accumulate batch losses for this epoch
+        batch_losses: List[Array] = []
+
+        # Python loop over batches
+        for batch_idx in range(n_batches):
+            # Extract batch data
+            start = batch_idx * batch_size
+            end = start + batch_size
+            batch = tree.map(
+                lambda x: x[perm[start:end]],
+                train,
+            )
+
+            # Run JIT-compiled training step
+            batch_loss = train_step(
+                model,
+                opt,
+                batch,
+                batch_rngs[batch_idx]
+            )
+            batch_losses.append(batch_loss)
+
+        # Average training loss across batches
+        train_loss = jnp.mean(jnp.stack(batch_losses))
+        train_losses_list.append(train_loss)
+
+        # Compute validation loss
+        if val is not None:
+            epoch_rng, val_key = jr.split(epoch_rng)
+
+            val_loss = compute_val_loss(model, val, val_key)
+            val_losses_list.append(val_loss)
+
+            # Update progress bar with losses
+            pbar.set_postfix(train_loss=f"{float(train_loss):.4f}", val_loss=f"{float(val_loss):.4f}")
+        pbar.set_postfix(train_loss=f"{float(train_loss):.4f}")
+
+        # Early stopping check
+        if early_stopping_enabled:
+            if best_train_loss - float(train_loss) > delta:
+                # Improvement found
+                best_train_loss = float(train_loss)
+                epochs_without_improvement = 0
+                # Save best model state (deep copy since nnx.state returns live view)
+                best_state = tree.map(jnp.copy, nnx.state(model))
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= patience:
+                    # Restore best model and stop
+                    assert best_state is not None
+                    nnx.update(model, best_state)
+                    break
+
+    # Stack losses into arrays (may be shorter than n_iter if early stopped)
+    train_losses = jnp.stack(train_losses_list)
+    if val is not None:
+        val_losses = jnp.stack(val_losses_list)
+    else:
+        val_losses = jnp.array([])
+
+    return model, (train_losses, val_losses)

@@ -4,6 +4,7 @@ from typing import Callable, Optional
 
 from jaxtyping import Array
 from flax import nnx
+from flax.nnx.nn.attention import dot_product_attention
 
 from .config import TransformerConfig
 from .linear_attention import linear_attention
@@ -175,6 +176,15 @@ class EncoderBlock(nnx.Module):
         latent_dim = config.latent_dim
         n_heads = config.n_heads
 
+        if config.attention == 'softmax':
+            attention_fn = dot_product_attention
+        elif config.attention == 'linear':
+            attention_fn = linear_attention
+        else:
+            raise ValueError(
+                "TransformerConfig specifies unknown attention: {config.attention}"
+            )
+
         self.attention = nnx.MultiHeadAttention(
             num_heads=n_heads,
             in_features=latent_dim,
@@ -183,7 +193,7 @@ class EncoderBlock(nnx.Module):
             broadcast_dropout=False,
             dropout_rate=config.dropout,
             decode=False,
-            attention_fn=linear_attention,
+            attention_fn=attention_fn,
             rngs=rngs,
         )
         self.att_norm = nnx.LayerNorm(
@@ -226,109 +236,7 @@ class EncoderBlock(nnx.Module):
         """
         # Self-attention with residual and norm
         attn_out = self.attention(
-            x, x, x, mask=None, deterministic=deterministic
-        )
-        x = x + attn_out
-        x = self.att_norm(x)
-
-        # Feedforward with residual and norm
-        ff_out = self.mlp(x)
-        x = x + ff_out
-        x = self.ff_norm(x)
-
-        return x
-
-class DecoderBlock(nnx.Module):
-    """Cross-attention transformer decoder block.
-
-    Applies multi-head cross-attention between query and context,
-    followed by feedforward network, with residual connections and
-    layer normalization after each sub-layer.
-
-    Attributes
-    ----------
-    attention : nnx.MultiHeadAttention
-        Multi-head cross-attention module
-    att_norm : nnx.LayerNorm
-        Layer normalization after attention
-    mlp : MLP
-        Feedforward network
-    ff_norm : nnx.LayerNorm
-        Layer normalization after feedforward
-    """
-
-    def __init__(
-        self,
-        config: TransformerConfig,
-        rngs: nnx.Rngs,
-    ) -> None:
-        """Initialize decoder block.
-
-        Parameters
-        ----------
-        config : TransformerConfig
-            Configuration containing latent_dim, n_heads, dropout
-        rngs : nnx.Rngs
-            Random number generator state
-        """
-        latent_dim = config.latent_dim
-        n_heads = config.n_heads
-
-        self.attention = nnx.MultiHeadAttention(
-            num_heads=n_heads,
-            in_features=latent_dim,
-            qkv_features=latent_dim,
-            use_bias=False,
-            broadcast_dropout=False,
-            dropout_rate=config.dropout,
-            decode=False,
-            attention_fn=linear_attention,
-            rngs=rngs,
-        )
-        self.att_norm = nnx.LayerNorm(
-            num_features=latent_dim,
-            dtype=float,
-            rngs=rngs,
-        )
-        self.mlp = MLP(config=config, rngs=rngs)
-        self.ff_norm = nnx.LayerNorm(
-            num_features=latent_dim,
-            dtype=float,
-            rngs=rngs,
-        )
-
-    def __call__(
-        self,
-        x: Array,
-        context: Array,
-        mask: Optional[Array] = None,
-        deterministic: bool = False,
-    ) -> Array:
-        """Apply decoder block transformation.
-
-        Applies cross-attention with residual connection and layer
-        normalization, followed by feedforward with residual connection
-        and layer normalization.
-
-        Parameters
-        ----------
-        x : Array
-            Query array of shape (..., n_q, latent_dim)
-        context : Array
-            Context (key/value) array of shape (..., n_context, latent_dim)
-        mask : Optional[Array]
-            Unused. Linear attention does not support masking.
-        deterministic : bool
-            If True, disable dropout for deterministic inference.
-
-        Returns
-        -------
-        Array
-            Output array of shape (..., n_q, latent_dim)
-        """
-        # Cross-attention with residual and norm
-        attn_out = self.attention(
-            x, context, context, mask=None, deterministic=deterministic
+            x, x, x, mask=mask, deterministic=deterministic
         )
         x = x + attn_out
         x = self.att_norm(x)

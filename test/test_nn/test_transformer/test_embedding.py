@@ -168,7 +168,6 @@ class TestEmbedding:
             tokens_without_functional_inputs,
             time
         )
-
         expected_shape = (batch_size, n_tokens, latent_dim)
         assert output.shape == expected_shape, (
             f"Expected shape {expected_shape}, got {output.shape}"
