@@ -102,7 +102,7 @@ def fit_bottom_up(
     labeller: Labeller,
     prior_log_prob: Callable[[PyTree], float],
     prob_transform: Optional[Callable] = None,
-    obs_f_in: Dict = {},
+    obs_f_in: Optional[Dict] = None,
     f_in_fn: Optional[Callable]=None,
     f_in_args: list=[],
     f_in_args_global: list=[],
@@ -192,7 +192,8 @@ def fit_bottom_up(
     rng, key_sim = jax.random.split(rng)
 
     r = 0
-    all_train_tokens = None
+    like_train_tokens = None
+
     while r < n_rounds:
         if isinstance(tfmpe, list) and isinstance(opt, list):
             tfmpe_local, tfmpe_global = tfmpe
@@ -252,15 +253,26 @@ def fit_bottom_up(
             y = simulator_fn(key_sim, theta, 1, obs_f_in)
 
         # Learn local likelihood
-        like_train_tokens = Tokens.from_pytree(
-            {**y, **theta},
-            condition=list(theta.keys()),
-            labeller=labeller,
-            sample_ndims=1,
-            functional_inputs=f_in
-        )
-
-        all_train_tokens = like_train_tokens
+        if like_train_tokens is None:
+            like_train_tokens = Tokens.from_pytree(
+                {**y, **theta},
+                condition=list(theta.keys()),
+                labeller=labeller,
+                sample_ndims=1,
+                functional_inputs=f_in
+            )
+        else:
+            new_like_train_tokens = Tokens.from_pytree(
+                {**y, **theta},
+                condition=list(theta.keys()),
+                labeller=labeller,
+                sample_ndims=1,
+                functional_inputs=f_in
+            )
+            like_train_tokens = combine_tokens(
+                new_like_train_tokens,
+                like_train_tokens
+            )
 
         # Create validation tokens
         if f_in_fn is not None:
@@ -410,12 +422,10 @@ def fit_bottom_up(
         )
 
         if isinstance(tfmpe, TFMPE):
-            all_train_tokens = combine_tokens(
+            global_train_tokens = combine_tokens(
                 like_train_tokens,
                 global_train_tokens
             )
-        else:
-            all_train_tokens = global_train_tokens
 
         # Train global posterior
         # Create validation tokens for second fit
@@ -448,7 +458,7 @@ def fit_bottom_up(
         print('fit_memory_efficient')
         tfmpe_global, second_losses = fit_memory_efficient(
             model=tfmpe_global,
-            train=all_train_tokens,
+            train=global_train_tokens,
             val=val_tokens,
             loss=_cfm_loss,
             opt=global_opt,

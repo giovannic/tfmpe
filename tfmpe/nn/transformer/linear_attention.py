@@ -64,8 +64,20 @@ def linear_attention(
     k = feature_map(key)
 
     if mask is not None:
-        q = q * mask[..., None]
-        value = value * mask[..., None]
+        # Assume a seperable mask (padding mask) which is
+        # compatible with this simple linear attention
+        q_mask = jnp.swapaxes(
+            jnp.any(mask, axis=-1),
+            -1,
+            -2
+        )
+        kv_mask = jnp.swapaxes(
+            jnp.any(mask, axis=-2),
+            -1,
+            -2
+        )
+        q = q * q_mask[..., None]
+        value = value * kv_mask[..., None]
 
     # KV: φ(K)^T @ V -> [batch..., heads, d, v_d]
     kv = jnp.einsum('...lhd,...lhv->...hdv', k, value, precision=precision)

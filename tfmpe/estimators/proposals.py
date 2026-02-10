@@ -15,7 +15,7 @@ def truncated_proposal_rejection(
     n_samples: int,
     epsilon: float,
     y_obs: Dict[str, Array],
-    prior_fn: Callable,
+    prior_fn: Callable[[PyTree, int, int, dict], dict],
     n: int,
     prior_log_prob: Callable[[PyTree], float],
     prob_transform: Optional[Callable[[PyTree, Array], float]] = None,
@@ -88,7 +88,7 @@ def truncated_proposal_sir(
     key: Array,
     model: TFMPE,
     labeller: Labeller,
-    f_in: Dict[str, Array],
+    f_in: Optional[Dict[str, Array]],
     n_samples: int,
     epsilon: float,
     y_obs: Dict[str, Array],
@@ -156,16 +156,17 @@ def _batch_sample(
     prior_fn: Callable,
     n: int,
     y_obs: Dict[str, Array],
-    f_in: Dict[str, Array],
+    f_in: Optional[Dict[str, Array]],
     n_batch: int,
     n_total: int,
     prob_transform: Optional[Callable[[PyTree, Array], float]] = None,
     ) -> Tuple[PyTree, Array]:
     """Estimate threshold for High Probability Region of approximate posterior"""
-    samples, _ = prior_fn(
+    samples = prior_fn(
         key,
-        n=n,
-        n_samples=1,
+        n,
+        1,
+        f_in
     )
 
     theta_template = tree.map(
@@ -249,8 +250,9 @@ def _batch_sample_prior(
     """Estimate threshold for High Probability Region of approximate posterior"""
     samples, _ = prior_fn(
         key,
-        n=n,
-        n_samples=1,
+        n,
+        1,
+        f_in
     )
 
     theta_template = tree.map(
@@ -283,10 +285,11 @@ def _batch_sample_prior(
         print(f'progress: {n_sampled} of {n_total}')
         print(f'sampling {n_batch}')
 
-        prior_samples, _ = prior_fn(
+        prior_samples = prior_fn(
             key,
-            n=n,
-            n_samples=n_batch,
+            n,
+            n_batch,
+            f_in
         )
         output_tokens = Tokens.from_pytree(
             {**y_expanded, **prior_samples},
