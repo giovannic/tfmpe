@@ -158,7 +158,7 @@ def fit_memory_efficient(
     rng : PRNGKeyArray
         Random number generator key
     delta : float, optional
-        Minimum improvement in training loss to reset patience counter.
+        Minimum improvement in validation loss to reset patience counter.
         Default is 0.0 (any improvement counts).
     patience : int, optional
         Number of epochs to wait for improvement before stopping.
@@ -214,10 +214,10 @@ def fit_memory_efficient(
     val_losses_list: List[Array] = []
 
     # Early stopping state
-    best_train_loss = float('inf')
+    best_val_loss = float('inf')
     epochs_without_improvement = 0
     best_state = None
-    early_stopping_enabled = patience > 0
+    early_stopping_enabled = patience > 0 and val is not None
 
     # Python loop over epochs with progress bar
     pbar = tqdm(range(n_iter), desc="Training")
@@ -267,23 +267,24 @@ def fit_memory_efficient(
 
             # Update progress bar with losses
             pbar.set_postfix(train_loss=f"{float(train_loss):.4f}", val_loss=f"{float(val_loss):.4f}")
-        pbar.set_postfix(train_loss=f"{float(train_loss):.4f}")
 
-        # Early stopping check
-        if early_stopping_enabled:
-            if best_train_loss - float(train_loss) > delta:
-                # Improvement found
-                best_train_loss = float(train_loss)
-                epochs_without_improvement = 0
-                # Save best model state (deep copy since nnx.state returns live view)
-                best_state = tree.map(jnp.copy, nnx.state(model))
-            else:
-                epochs_without_improvement += 1
-                if epochs_without_improvement >= patience:
-                    # Restore best model and stop
-                    assert best_state is not None
-                    nnx.update(model, best_state)
-                    break
+            # Early stopping check
+            if early_stopping_enabled:
+                if best_val_loss - float(val_loss) > delta:
+                    # Improvement found
+                    best_val_loss = float(val_loss)
+                    epochs_without_improvement = 0
+                    # Save best model state (deep copy since nnx.state returns live view)
+                    best_state = tree.map(jnp.copy, nnx.state(model))
+                else:
+                    epochs_without_improvement += 1
+                    if epochs_without_improvement >= patience:
+                        # Restore best model and stop
+                        assert best_state is not None
+                        nnx.update(model, best_state)
+                        break
+        else:
+            pbar.set_postfix(train_loss=f"{float(train_loss):.4f}")
 
     # Stack losses into arrays (may be shorter than n_iter if early stopped)
     train_losses = jnp.stack(train_losses_list)

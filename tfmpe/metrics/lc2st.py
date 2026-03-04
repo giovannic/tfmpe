@@ -22,18 +22,22 @@ def _fit_classifier(
     num_epochs=100,
     batch_size=100,
     optimizer: optax.GradientTransformation = optax.adam(0.0003),
-    delta=1e-3,
+    split=.9,
+    delta=1e-2,
     patience=100
     ):
 
-    data = {"data": {"u": u, "y": labels}}
+    n_split = int(u.shape[0] * split)
+
+    data = {"data": {"u": u[:n_split], "y": labels[:n_split]}}
+    val = {"data": {"u": u[n_split:], "y": labels[n_split:]}}
     
     opt = nnx.Optimizer(classifier, optimizer, wrt=nnx.Param)
 
     return fit_memory_efficient(
         classifier,
         train=data,
-        val=None,
+        val=val,
         opt=opt,
         loss=ce_loss,
         n_iter=num_epochs,
@@ -117,7 +121,7 @@ def _train_lc2st_classifiers(
         labels_main,
         num_epochs=num_epochs,
         batch_size=batch_size,
-        delta=1e-2,
+        delta=1e-1,
         patience=100
     )
 
@@ -152,7 +156,7 @@ def _train_lc2st_classifiers(
         permuted_labels,
         num_epochs=num_epochs,
         batch_size=batch_size,
-        delta=1e-2,
+        delta=1e-1,
         patience=100
     )
 
