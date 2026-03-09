@@ -108,10 +108,11 @@ def fit_pf(
     samples_per_n = n_samples // budget_unit
     val_samples_per_n = n_val_samples // budget_unit
 
-    assert samples_per_n >= batch_size, (
+    total_train_samples = samples_per_n * n_groups
+    assert total_train_samples >= batch_size, (
         f"n_samples={n_samples} too small for n_groups={n_groups}: "
-        f"samples_per_n={samples_per_n} < batch_size={batch_size}. "
-        f"Need n_samples >= {batch_size * budget_unit}."
+        f"total_train_samples={total_train_samples} < batch_size={batch_size}. "
+        f"Need n_samples >= {batch_size * budget_unit // n_groups}."
     )
     assert val_samples_per_n >= 1, (
         f"n_val_samples={n_val_samples} too small for n_groups={n_groups}: "
