@@ -332,7 +332,7 @@ def fit_bottom_up(
 
         y_n = tfmpe_local.sample_posterior_batched(
             tokens,
-            batch_size=10_000
+            batch_size=100
         )
 
         # Create training tokens for second fit
