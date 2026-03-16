@@ -12,6 +12,18 @@ from jaxtyping import Array, Scalar
 from ..preprocessing.tokens import Tokens
 
 
+def _make_step_controller(solver, rtol, atol):
+    """Pick step controller based on solver capabilities.
+
+    Adaptive solvers (e.g. Dopri5, Heun) use PIDController.
+    Fixed-order solvers without error estimates (e.g. Euler)
+    use ConstantStepSize.
+    """
+    if isinstance(solver, diffrax.AbstractAdaptiveSolver):
+        return diffrax.PIDController(rtol=rtol, atol=atol), None
+    return diffrax.ConstantStepSize(), 0.01
+
+
 def solve_forward_ode(
     vf_fn: Callable[[Tokens, Scalar], Array],
     tokens: Tokens,
@@ -54,16 +66,15 @@ def solve_forward_ode(
 
     y0 = tokens.data[tokens.partition_idx:]
 
-    step_controller = diffrax.PIDController(
-        rtol=rtol,
-        atol=atol,
+    step_controller, dt0 = _make_step_controller(
+        solver, rtol, atol
     )
     solution = diffrax.diffeqsolve(
         diffrax.ODETerm(ode_func),
         solver,
         t0=0.0,
         t1=1.0,
-        dt0=None,
+        dt0=dt0,
         y0=y0,
         stepsize_controller=step_controller,
         saveat=diffrax.SaveAt(t1=True),
@@ -177,9 +188,8 @@ def solve_augmented_ode(
         jnp.array(0.0)
     )
 
-    step_controller = diffrax.PIDController(
-        rtol=rtol,
-        atol=atol,
+    step_controller, dt0 = _make_step_controller(
+        solver, rtol, atol
     )
     # Integrate from -1 to 0 (equivalent to t=1 to t=0)
     solution = diffrax.diffeqsolve(
@@ -187,7 +197,7 @@ def solve_augmented_ode(
         solver,
         t0=-1.0,
         t1=0.0,
-        dt0=None,
+        dt0=dt0,
         y0=aug_y0,
         stepsize_controller=step_controller,
         saveat=diffrax.SaveAt(t1=True),

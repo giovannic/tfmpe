@@ -1,10 +1,13 @@
 """Integration tests for TFMPE class."""
 
+import diffrax
 import jax
 import jax.numpy as jnp
 import pytest
 from flax import nnx
 
+from tfmpe.nn.transformer import Transformer, TransformerConfig
+from tfmpe.preprocessing.tokens import Tokens
 from tfmpe.estimators.tfmpe import TFMPE, NormalDistribution
 from .conftest import create_mock_tokens
 
@@ -398,11 +401,6 @@ class TestPosteriorSamplingBenchmark:
         Uses a lightweight transformer config suitable for
         benchmarking across varying token/batch sizes.
         """
-        from tfmpe.preprocessing.tokens import Tokens
-        from tfmpe.nn.transformer import (
-            Transformer, TransformerConfig
-        )
-
         # Create minimal template tokens
         params_dict = {'x': jnp.ones((1, 1, 1)) * 0.5}
         params_tokens = Tokens.from_pytree(
@@ -468,5 +466,107 @@ class TestPosteriorSamplingBenchmark:
             return tfmpe_with_transformer.sample_posterior(
                 tokens
             )
+
+        benchmark(sample)
+
+
+class TestPosteriorSamplingScaling:
+    """Benchmark attention type and solver impact on posterior
+    sampling at realistic hierarchical scales.
+
+    Simulates SIR-like token structure:
+    - 1 global param token
+    - n_l local param tokens (1 per site)
+    - n_obs_per_site * n_l observation tokens
+    """
+
+    @staticmethod
+    def _make_tfmpe(attention, solver):
+        params_dict = {'x': jnp.ones((1, 1, 1)) * 0.5}
+        template = Tokens.from_pytree(
+            params_dict, condition=[], sample_ndims=1
+        )
+
+        config = TransformerConfig(
+            latent_dim=64,
+            n_encoder=2,
+            n_heads=16,
+            n_ff=2,
+            attention=attention,
+        )
+        rngs = nnx.Rngs(
+            params=jax.random.PRNGKey(0),
+            dropout=jax.random.PRNGKey(1),
+        )
+        transformer = Transformer(
+            config=config, tokens=template, rngs=rngs
+        )
+        base_dist = NormalDistribution(rngs=rngs)
+        tfmpe = TFMPE(
+            vf_network=transformer,
+            base_dist=base_dist,
+            solver=solver,
+        )
+        tfmpe.eval()
+        return tfmpe
+
+    @staticmethod
+    def _make_tokens(n_l, n_obs_per_site, sample_size):
+        n_param_tokens = 1 + n_l
+        n_context_tokens = n_obs_per_site * n_l
+        return create_mock_tokens(
+            jnp.zeros((sample_size, n_context_tokens, 1)),
+            jnp.zeros((sample_size, n_param_tokens, 1)),
+            sample_ndims=1,
+        )
+
+    @pytest.mark.slow
+    @pytest.mark.parametrize(
+        "attention", ["softmax", "linear"]
+    )
+    @pytest.mark.parametrize(
+        "solver_name", ["dopri5", "heun", "euler"]
+    )
+    @pytest.mark.parametrize(
+        "n_l,n_obs_per_site",
+        [
+            (50, 10),    # SIR-like: 551 tokens
+            (1000, 50),  # target scale: 51001 tokens
+        ],
+    )
+    def test_scaling_benchmark(
+        self, attention, solver_name, n_l, n_obs_per_site,
+        benchmark
+    ):
+        """Benchmark attention × solver × scale combinations.
+
+        Measures wall-clock time for 1000 posterior samples across
+        attention types (softmax vs linear), solvers (Dopri5,
+        Heun, Euler), and hierarchical scales (n_l=50, n_l=1000).
+        """
+        solver_map = {
+            "dopri5": diffrax.Dopri5(),
+            "heun": diffrax.Heun(),
+            "euler": diffrax.Euler(),
+        }
+        solver = solver_map[solver_name]
+        sample_size = 1000
+
+        tfmpe = self._make_tfmpe(attention, solver)
+        tokens = self._make_tokens(
+            n_l, n_obs_per_site, sample_size
+        )
+
+        n_total = tokens.data.shape[1]
+        print(
+            f"\n  {attention} | {solver_name} | "
+            f"n_l={n_l} | {n_total} tokens | "
+            f"samples={sample_size}"
+        )
+
+        def sample():
+            result = tfmpe.sample_posterior(tokens)
+            result.data.block_until_ready()
+            return result
 
         benchmark(sample)
