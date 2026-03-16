@@ -49,7 +49,9 @@ class TransformerConfig:
     label_dim: int = 32
     index_out_dim: int = 64
     pos_dim: int = 8
+    max_positions: int = 128
     group_dim: int = 8
+    max_groups: int = 128
     dropout: float = 0.1
     attention: Literal['linear'] | Literal['softmax'] = 'softmax'
     activation: Callable = field(default_factory=lambda: nnx.relu)

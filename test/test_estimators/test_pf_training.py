@@ -8,7 +8,7 @@ import pytest
 from flax import nnx
 
 from tfmpe.estimators.tfmpe import TFMPE, NormalDistribution
-from tfmpe.estimators.training import fit_pf, _cfm_loss
+from tfmpe.estimators.training import fit_pf
 from tfmpe.preprocessing.tokens import Tokens
 from tfmpe.preprocessing.utils import Labeller
 from tfmpe.nn.transformer import Transformer, TransformerConfig

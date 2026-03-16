@@ -3,17 +3,18 @@
 Provides speed-optimized and memory-efficient training implementations.
 """
 
-from typing import Tuple
-
 import jax
-from jax import tree, numpy as jnp
-from flax import nnx
+from jax import numpy as jnp
 from jaxtyping import Array
 
 from ..tfmpe import TFMPE
 from ...preprocessing.tokens import Tokens
 
 import dataclasses
+
+from .bottom_up import fit_bottom_up
+from .directly import fit_directly
+from .posterior_factorisation import fit_pf
 
 def _cfm_loss(
     tfmpe: TFMPE,
@@ -78,10 +79,6 @@ def _cfm_loss(
         jnp.square(v_pred - u_target)
     )
 
-
-from .bottom_up import fit_bottom_up
-from .directly import fit_directly
-from .posterior_factorisation import fit_pf
 
 __all__ = [
     "_cfm_loss",

@@ -1,6 +1,6 @@
 """Direct training for TFMPE models."""
 
-from typing import Callable, List, Tuple, Optional
+from typing import Callable, Tuple, Optional
 
 import jax
 from flax import nnx

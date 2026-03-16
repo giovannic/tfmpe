@@ -159,6 +159,8 @@ class TestEmbedding:
             label_dim=label_dim,
             pos_dim=pos_dim,
             latent_dim=latent_dim,
+            max_positions=128,
+            max_groups=128,
             rngs=rngs
         )
 
@@ -199,6 +201,8 @@ class TestEmbedding:
             latent_dim=latent_dim,
             pos_dim=pos_dim,
             rngs=rngs,
+            max_positions=128,
+            max_groups=128,
             f_in_in_dim=functional_inputs_dim,
             f_in_out_dim=functional_inputs_dim,
         )
@@ -240,6 +244,8 @@ class TestEmbedding:
             label_dim=label_dim,
             pos_dim=pos_dim,
             latent_dim=latent_dim,
+            max_positions=128,
+            max_groups=128,
             rngs=rngs,
         )
 

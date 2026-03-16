@@ -86,11 +86,13 @@ class Embedding(nnx.Module):
         n_labels: int,
         label_dim: int,
         pos_dim: int,
+        max_positions: int,
         latent_dim: int,
         rngs: nnx.Rngs,
         f_in_in_dim: int = 0,
         f_in_out_dim: int = 0,
         group_dim: int = 0,
+        max_groups: int = 128,
     ) -> None:
         """Initialize Embedding layer.
 
@@ -102,16 +104,26 @@ class Embedding(nnx.Module):
             Number of distinct labels
         label_dim : int
             Embedding dimension for labels
+        pos_dim : int
+            Embedding dimension for within-group position
+        max_positions : int
+            Maximum number of within-group positions
         latent_dim : int
             Target latent dimension
         rngs : nnx.Rngs
             JAX random number generator for initialization
-        functional_inputs_dim : int, optional
-            Dimension of functional inputs (0 if not used).
+        f_in_in_dim : int, optional
+            Input dimension of functional inputs (0 if not used).
+            Default is 0.
+        f_in_out_dim : int, optional
+            Output dimension of functional input embeddings.
             Default is 0.
         group_dim : int, optional
-            Dimension for group id embeddings (0 to disable).
+            Embedding dimension for group id (0 to disable).
             Default is 0.
+        max_groups : int, optional
+            Maximum number of groups for group id embedding.
+            Default is 128.
         """
 
         self.embedding = nnx.Embed(
@@ -120,11 +132,19 @@ class Embedding(nnx.Module):
             rngs=rngs,
         )
 
-        self.pos_emb = GaussianFourierEmbedding(1, pos_dim, rngs)
+        self.pos_emb = nnx.Embed(
+            max_positions,
+            features=pos_dim,
+            rngs=rngs,
+        )
 
         self.group_dim = group_dim
         if group_dim > 0:
-            self.group_emb = GaussianFourierEmbedding(1, group_dim, rngs)
+            self.group_emb = nnx.Embed(
+                max_groups,
+                features=group_dim,
+                rngs=rngs,
+            )
 
         if f_in_in_dim > 0:
             self.f_in_emb = GaussianFourierEmbedding(f_in_in_dim, f_in_out_dim, rngs)
@@ -182,12 +202,8 @@ class Embedding(nnx.Module):
             sample_shape + (n_tokens, 1),
         )
 
-        # Compute and embed positions
-        pos_expanded = jnp.broadcast_to(
-            tokens.position[..., None],
-            sample_shape + (n_tokens, 1)
-        )
-        pos_emb = self.pos_emb(pos_expanded)
+        # Embed positions (integer indices)
+        pos_emb = self.pos_emb(tokens.position.astype(jnp.int32))
 
         # Build concatenation
         parts = [
@@ -197,13 +213,11 @@ class Embedding(nnx.Module):
             time_expanded
         ]
 
-        # Embed group_id
+        # Embed group_id (integer indices)
         if self.group_dim > 0:
-            group_expanded = jnp.broadcast_to(
-                tokens.group_id[..., None],
-                sample_shape + (n_tokens, 1)
+            parts.append(
+                self.group_emb(tokens.group_id.astype(jnp.int32))
             )
-            parts.append(self.group_emb(group_expanded))
 
         if functional_inputs is not None:
             parts.append(
