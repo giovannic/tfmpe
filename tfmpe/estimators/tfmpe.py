@@ -276,6 +276,7 @@ class TFMPE(nnx.Module):
             partition_idx=source_samples.partition_idx,
             padding_mask=None if source_samples.padding_mask is None else 0,#type: ignore
             functional_inputs=None if source_samples.functional_inputs is None else 0,#type: ignore
+            group_id=0,#type: ignore
         )
 
         def solve_params(tokens):

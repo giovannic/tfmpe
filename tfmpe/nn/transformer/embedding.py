@@ -90,6 +90,7 @@ class Embedding(nnx.Module):
         rngs: nnx.Rngs,
         f_in_in_dim: int = 0,
         f_in_out_dim: int = 0,
+        group_dim: int = 0,
     ) -> None:
         """Initialize Embedding layer.
 
@@ -108,6 +109,9 @@ class Embedding(nnx.Module):
         functional_inputs_dim : int, optional
             Dimension of functional inputs (0 if not used).
             Default is 0.
+        group_dim : int, optional
+            Dimension for group id embeddings (0 to disable).
+            Default is 0.
         """
 
         self.embedding = nnx.Embed(
@@ -118,13 +122,17 @@ class Embedding(nnx.Module):
 
         self.pos_emb = GaussianFourierEmbedding(1, pos_dim, rngs)
 
+        self.group_dim = group_dim
+        if group_dim > 0:
+            self.group_emb = GaussianFourierEmbedding(1, group_dim, rngs)
+
         if f_in_in_dim > 0:
             self.f_in_emb = GaussianFourierEmbedding(f_in_in_dim, f_in_out_dim, rngs)
         else:
             f_in_out_dim = 0
 
-        # Input dimension: value + label + pos + time + functional_inputs
-        in_dim = value_dim + label_dim + pos_dim + 1 + f_in_out_dim
+        # Input dimension: value + label + pos + time + group + functional_inputs
+        in_dim = value_dim + label_dim + pos_dim + 1 + group_dim + f_in_out_dim
 
         self.linear = nnx.Linear(
             in_dim,
@@ -188,6 +196,14 @@ class Embedding(nnx.Module):
             pos_emb,
             time_expanded
         ]
+
+        # Embed group_id
+        if self.group_dim > 0:
+            group_expanded = jnp.broadcast_to(
+                tokens.group_id[..., None],
+                sample_shape + (n_tokens, 1)
+            )
+            parts.append(self.group_emb(group_expanded))
 
         if functional_inputs is not None:
             parts.append(

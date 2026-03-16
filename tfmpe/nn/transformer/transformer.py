@@ -77,7 +77,8 @@ class Transformer(nnx.Module):
             latent_dim=config.latent_dim,
             rngs=rngs,
             f_in_in_dim=f_in_in_dim,
-            f_in_out_dim=config.index_out_dim
+            f_in_out_dim=config.index_out_dim,
+            group_dim=config.group_dim,
         )
 
         # Create encoder blocks via vmap

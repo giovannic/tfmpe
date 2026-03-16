@@ -63,6 +63,7 @@ class Tokens:
     partition_idx: int
     padding_mask: Optional[Array]
     functional_inputs: Optional[Array]
+    group_id: Array
 
     @property
     def sample_ndims(self) -> int:
@@ -259,21 +260,33 @@ class Tokens:
                 sample_ndims=sample_ndims
             )
             
-        position = jnp.concatenate([
-            jnp.arange(prod(s.event_shape))
-            for s in slices.values()
-        ])
+        # Compute within-group position and group_id
+        position_parts = []
+        group_id_parts = []
+        for s in slices.values():
+            n_tokens_key = prod(s.event_shape)
+            if len(s.event_shape) >= 2:
+                n_groups = s.event_shape[0]
+                inner_dim = prod(s.event_shape[1:])
+                position_parts.append(
+                    jnp.tile(jnp.arange(inner_dim), n_groups)
+                )
+                group_id_parts.append(
+                    jnp.repeat(jnp.arange(n_groups), inner_dim)
+                )
+            else:
+                position_parts.append(jnp.arange(n_tokens_key))
+                group_id_parts.append(jnp.zeros(n_tokens_key))
+
+        position = jnp.concatenate(position_parts)
         position = jnp.broadcast_to(
             position.reshape((1,) * sample_ndims + (total_tokens,)),
             broadcast_shape
         )
 
-        position = jnp.concatenate([
-            jnp.arange(prod(s.event_shape))
-            for s in slices.values()
-        ])
-        position = jnp.broadcast_to(
-            position.reshape((1,) * sample_ndims + (total_tokens,)),
+        group_id = jnp.concatenate(group_id_parts)
+        group_id = jnp.broadcast_to(
+            group_id.reshape((1,) * sample_ndims + (total_tokens,)),
             broadcast_shape
         )
 
@@ -297,6 +310,7 @@ class Tokens:
             condition=condition_values,
             padding_mask=None,
             functional_inputs=func_inputs_flat,
+            group_id=group_id,
             partition_idx=partition_idx
         )
 
@@ -328,6 +342,7 @@ class Tokens:
             self.condition,
             self.padding_mask,
             self.functional_inputs,
+            self.group_id,
         )
         aux_data = {"partition_idx": self.partition_idx}
         return (children, aux_data)
@@ -360,6 +375,7 @@ class Tokens:
             condition,
             padding_mask,
             functional_inputs,
+            group_id,
         ) = children
         return cls(
             data=data,
@@ -368,5 +384,6 @@ class Tokens:
             condition=condition,
             padding_mask=padding_mask,
             functional_inputs=functional_inputs,
+            group_id=group_id,
             partition_idx=aux_data["partition_idx"]
         )
