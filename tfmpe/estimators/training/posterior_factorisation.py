@@ -47,6 +47,7 @@ def fit_pf(
     f_in_args: list = [],
     delta: float = 0.0,
     patience: int = 0,
+    sample_batch_size: int = 1000
 ) -> Tuple[TFMPE, TFMPE, Tuple[Tuple[Array, Array], Tuple[Array, Array]]]:
     """Posterior factorised training with separate global and local estimators.
 
@@ -106,17 +107,13 @@ def fit_pf(
     # sum(samples_per_n * n for n in 1..n_groups) ≈ n_samples
     budget_unit = n_groups * (n_groups + 1) // 2
     samples_per_n = n_samples // budget_unit
-    val_samples_per_n = n_val_samples // budget_unit
+    val_samples_per_n = max(1, n_val_samples // budget_unit)
 
     total_train_samples = samples_per_n * n_groups
     assert total_train_samples >= batch_size, (
         f"n_samples={n_samples} too small for n_groups={n_groups}: "
         f"total_train_samples={total_train_samples} < batch_size={batch_size}. "
         f"Need n_samples >= {batch_size * budget_unit // n_groups}."
-    )
-    assert val_samples_per_n >= 1, (
-        f"n_val_samples={n_val_samples} too small for n_groups={n_groups}: "
-        f"Need n_val_samples >= {budget_unit}."
     )
 
     # ----------------------------------------------------------------
@@ -212,7 +209,7 @@ def fit_pf(
 
         # Sample global posterior
         sampled = tfmpe_global.sample_posterior_batched(
-            tokens_for_sampling, batch_size=10_000
+            tokens_for_sampling, batch_size=sample_batch_size
         )
 
         # Decode sampled tokens back to dict
