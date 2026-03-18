@@ -15,7 +15,7 @@ from ...preprocessing.combine import combine_tokens
 from ...preprocessing.utils import Labeller
 from ...nn.training import fit_memory_efficient
 
-from . import _cfm_loss
+from .loss import cfm_loss as _cfm_loss
 
 
 def fit_bottom_up(
