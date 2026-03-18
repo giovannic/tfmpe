@@ -40,7 +40,8 @@ def fit_bottom_up(
     f_in_fn: Optional[Callable]=None,
     f_in_args: list=[],
     f_in_args_global: list=[],
-    epsilon: float = 1e-3
+    epsilon: float = 1e-3,
+    sample_batch_size: int = 1000
 ) -> Tuple[TFMPE, List[Tuple[Array, Array, Array, Array]]]:
     """Multi-round bottom-up training algorithm.
 
@@ -332,7 +333,7 @@ def fit_bottom_up(
 
         y_n = tfmpe_local.sample_posterior_batched(
             tokens,
-            batch_size=100
+            batch_size=sample_batch_size
         )
 
         # Create training tokens for second fit
