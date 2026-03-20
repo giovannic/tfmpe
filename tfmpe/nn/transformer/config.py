@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 from typing import Literal
 
+import jax.numpy as jnp
 from flax import nnx
 
 
@@ -55,6 +56,8 @@ class TransformerConfig:
     dropout: float = 0.1
     attention: Literal['linear'] | Literal['softmax'] = 'softmax'
     activation: Callable = field(default_factory=lambda: nnx.relu)
+    ops_dtype: jnp.dtype = jnp.float32
+    sensitive_ops_dtype: jnp.dtype = jnp.float32
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization.

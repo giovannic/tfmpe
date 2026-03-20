@@ -6,7 +6,7 @@ import pytest
 from flax import nnx
 
 from tfmpe.estimators.tfmpe import TFMPE, NormalDistribution
-from tfmpe.estimators.training import _cfm_loss as cfm_loss
+from tfmpe.estimators.training.loss import cfm_loss
 from tfmpe.preprocessing.tokens import Tokens
 from jaxtyping import Array
 

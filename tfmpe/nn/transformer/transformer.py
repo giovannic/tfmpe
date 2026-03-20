@@ -81,6 +81,7 @@ class Transformer(nnx.Module):
             f_in_out_dim=config.index_out_dim,
             group_dim=config.group_dim,
             max_groups=config.max_groups,
+            ops_dtype=config.ops_dtype,
         )
 
         # Create encoder blocks via vmap
@@ -96,6 +97,7 @@ class Transformer(nnx.Module):
         self.output_linear = nnx.Linear(
             config.latent_dim,
             self.value_dim,
+            dtype=config.ops_dtype,
             rngs=rngs,
         )
 

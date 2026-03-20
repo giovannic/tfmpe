@@ -478,10 +478,16 @@ class TestPosteriorSamplingScaling:
     - 1 global param token
     - n_l local param tokens (1 per site)
     - n_obs_per_site * n_l observation tokens
+
+    Note: large-scale cases (e.g. n_l=1000) may OOM on GPUs with
+    limited memory. To fail fast instead of hanging, set:
+        XLA_PYTHON_CLIENT_ALLOCATOR=platform
+    before running these tests.
     """
 
     @staticmethod
-    def _make_tfmpe(attention, solver):
+    def _make_tfmpe(attention, solver, ops_dtype=jnp.float32,
+                    sensitive_ops_dtype=jnp.float32):
         params_dict = {'x': jnp.ones((1, 1, 1)) * 0.5}
         template = Tokens.from_pytree(
             params_dict, condition=[], sample_ndims=1
@@ -493,6 +499,8 @@ class TestPosteriorSamplingScaling:
             n_heads=16,
             n_ff=2,
             attention=attention,
+            ops_dtype=ops_dtype,
+            sensitive_ops_dtype=sensitive_ops_dtype,
         )
         rngs = nnx.Rngs(
             params=jax.random.PRNGKey(0),
@@ -534,16 +542,27 @@ class TestPosteriorSamplingScaling:
             (1000, 50),  # target scale: 51001 tokens
         ],
     )
+    @pytest.mark.parametrize(
+        "dtype_name", ["f32", "mixed", "bf16"]
+    )
     def test_scaling_benchmark(
         self, attention, solver_name, n_l, n_obs_per_site,
-        benchmark
+        dtype_name, benchmark
     ):
-        """Benchmark attention × solver × scale combinations.
+        """Benchmark attention × solver × dtype × scale.
 
         Measures wall-clock time for 1000 posterior samples across
         attention types (softmax vs linear), solvers (Dopri5,
-        Heun, Euler), and hierarchical scales (n_l=50, n_l=1000).
+        Heun, Euler), dtypes (f32, mixed bf16/f32, full bf16),
+        and hierarchical scales (n_l=50, n_l=1000).
         """
+        dtype_map = {
+            "f32": (jnp.float32, jnp.float32),
+            "mixed": (jnp.bfloat16, jnp.float32),
+            "bf16": (jnp.bfloat16, jnp.bfloat16),
+        }
+        ops_dtype, sensitive_ops_dtype = dtype_map[dtype_name]
+
         solver_map = {
             "dopri5": diffrax.Dopri5(),
             "heun": diffrax.Heun(),
@@ -552,14 +571,16 @@ class TestPosteriorSamplingScaling:
         solver = solver_map[solver_name]
         sample_size = 1000
 
-        tfmpe = self._make_tfmpe(attention, solver)
+        tfmpe = self._make_tfmpe(
+            attention, solver, ops_dtype, sensitive_ops_dtype
+        )
         tokens = self._make_tokens(
             n_l, n_obs_per_site, sample_size
         )
 
         n_total = tokens.data.shape[1]
         print(
-            f"\n  {attention} | {solver_name} | "
+            f"\n  {attention} | {solver_name} | {dtype_name} | "
             f"n_l={n_l} | {n_total} tokens | "
             f"samples={sample_size}"
         )

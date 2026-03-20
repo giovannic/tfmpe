@@ -24,6 +24,7 @@ class GaussianFourierEmbedding(nnx.Module):
         in_dim: int,
         out_dim: int,
         rngs: nnx.Rngs,
+        dtype: jnp.dtype = jnp.float32,
     ) -> None:
         """Initialize Gaussian Fourier embedding.
 
@@ -36,6 +37,7 @@ class GaussianFourierEmbedding(nnx.Module):
         rngs : Array
             JAX random key for initialization
         """
+        self.dtype = dtype
         b_dim = out_dim // 2
         self.b = nnx.Param(
             random.normal(rngs.params(), (in_dim, b_dim))
@@ -61,7 +63,7 @@ class GaussianFourierEmbedding(nnx.Module):
         return jnp.concatenate([
             jnp.cos(x),
             jnp.sin(x),
-        ], axis=-1)
+        ], axis=-1).astype(self.dtype)
 
 
 class Embedding(nnx.Module):
@@ -93,6 +95,7 @@ class Embedding(nnx.Module):
         f_in_out_dim: int = 0,
         group_dim: int = 0,
         max_groups: int = 128,
+        ops_dtype: jnp.dtype = jnp.float32,
     ) -> None:
         """Initialize Embedding layer.
 
@@ -129,12 +132,14 @@ class Embedding(nnx.Module):
         self.embedding = nnx.Embed(
             n_labels,
             features=label_dim,
+            dtype=ops_dtype,
             rngs=rngs,
         )
 
         self.pos_emb = nnx.Embed(
             max_positions,
             features=pos_dim,
+            dtype=ops_dtype,
             rngs=rngs,
         )
 
@@ -143,11 +148,14 @@ class Embedding(nnx.Module):
             self.group_emb = nnx.Embed(
                 max_groups,
                 features=group_dim,
+                dtype=ops_dtype,
                 rngs=rngs,
             )
 
         if f_in_in_dim > 0:
-            self.f_in_emb = GaussianFourierEmbedding(f_in_in_dim, f_in_out_dim, rngs)
+            self.f_in_emb = GaussianFourierEmbedding(
+                f_in_in_dim, f_in_out_dim, rngs, dtype=ops_dtype,
+            )
         else:
             f_in_out_dim = 0
 
@@ -157,6 +165,7 @@ class Embedding(nnx.Module):
         self.linear = nnx.Linear(
             in_dim,
             latent_dim,
+            dtype=ops_dtype,
             rngs=rngs,
         )
 

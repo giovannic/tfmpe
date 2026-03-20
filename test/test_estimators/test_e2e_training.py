@@ -12,12 +12,19 @@ import pytest
 from flax import nnx
 
 from tfmpe.estimators.tfmpe import TFMPE, NormalDistribution
-from tfmpe.estimators.training import fit_bottom_up, _cfm_loss
+from tfmpe.estimators.training import fit_bottom_up
+from tfmpe.estimators.training.loss import cfm_loss as _cfm_loss
 from tfmpe.nn.training import fit_fast
 from tfmpe.preprocessing.tokens import Tokens
 from tfmpe.preprocessing.utils import Labeller
 from tfmpe.nn.transformer import Transformer, TransformerConfig
 from jaxtyping import Array
+
+PRECISION_MODES = {
+    "float32": dict(ops_dtype=jnp.float32, sensitive_ops_dtype=jnp.float32),
+    "bfloat16": dict(ops_dtype=jnp.bfloat16, sensitive_ops_dtype=jnp.bfloat16),
+    "mixed": dict(ops_dtype=jnp.bfloat16, sensitive_ops_dtype=jnp.float32),
+}
 
 def create_hierarchical_gaussian_data(
     rng: Array,
@@ -421,20 +428,19 @@ class TestE2ETrainingHalfNormal:
 
         return tokens
 
-    @pytest.fixture
-    def gaussian_tfmpe_instance(
+    def _make_tfmpe(
         self,
-        gaussian_training_data
+        gaussian_training_data,
+        precision_mode="float32",
     ) -> TFMPE:
-        """TFMPE instance for Gaussian learning."""
-        train_params = gaussian_training_data
-
+        """Create TFMPE instance for Gaussian learning."""
         config = TransformerConfig(
             latent_dim=32,
             n_encoder=1,
             n_heads=1,
-            n_ff=1,  # Number of feed forward layers
-            label_dim=2
+            n_ff=1,
+            label_dim=2,
+            **PRECISION_MODES[precision_mode],
         )
 
         rngs = nnx.Rngs(
@@ -444,7 +450,7 @@ class TestE2ETrainingHalfNormal:
 
         transformer = Transformer(
             config=config,
-            tokens=train_params,
+            tokens=gaussian_training_data,
             rngs=rngs,
         )
 
@@ -458,10 +464,11 @@ class TestE2ETrainingHalfNormal:
         )
 
     @pytest.mark.slow
+    @pytest.mark.parametrize("precision_mode", PRECISION_MODES.keys())
     def test_posterior_samples_are_positive(
         self,
         n_dim,
-        gaussian_tfmpe_instance,
+        precision_mode,
         gaussian_training_data,
         gaussian_validation_data,
         labeller
@@ -478,6 +485,10 @@ class TestE2ETrainingHalfNormal:
         Then:
         - Most samples are positive
         """
+        gaussian_tfmpe_instance = self._make_tfmpe(
+            gaussian_training_data, precision_mode
+        )
+
         # Train the model
         optimizer = optax.adam(learning_rate=1e-3)
         opt = nnx.Optimizer(

@@ -92,4 +92,7 @@ def linear_attention(
     normalizer = jnp.einsum('...qhd,...hd->...qh', q, k_sum, precision=precision)
     normalizer = jnp.maximum(normalizer, 1e-6)
 
-    return output / normalizer[..., None]
+    result = output / normalizer[..., None]
+    if dtype is not None:
+        result = result.astype(dtype)
+    return result
