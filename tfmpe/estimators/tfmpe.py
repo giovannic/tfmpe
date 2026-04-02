@@ -216,24 +216,43 @@ class TFMPE(nnx.Module):
         tokens: Tokens,
         batch_size: int
     ) -> Tokens:
-        samples = []
         target = tokens.sample_shape[0]
-        def process_batch(i) -> Tokens:
-            batch = jax.tree.map(
-                lambda leaf: leaf[i:i+batch_size],
-                tokens
+
+        # Pad first axis so it divides evenly into batches
+        remainder = target % batch_size
+        if remainder != 0:
+            pad_size = batch_size - remainder
+            tokens = jax.tree.map(
+                lambda leaf: jnp.pad(
+                    leaf,
+                    [(0, pad_size)]
+                    + [(0, 0)] * (leaf.ndim - 1),
+                ),
+                tokens,
             )
-            return self.sample_posterior(batch)
 
-        samples = [
-            process_batch(i)
-            for i
-            in range(0, target, batch_size)
-        ]
+        n_batches = -(-target // batch_size)
 
-        return dataclasses.replace(
+        # Reshape to (n_batches, batch_size, ...)
+        batched = jax.tree.map(
+            lambda leaf: leaf.reshape(
+                (n_batches, batch_size) + leaf.shape[1:]
+            ),
             tokens,
-            data=jnp.concatenate([s.data for s in samples])
+        )
+
+        def scan_fn(estimator, batch):
+            result = estimator.sample_posterior(batch)
+            return estimator, result
+
+        _, results = nnx.scan(scan_fn)(self, batched)
+
+        # Flatten back to (n_batches * batch_size, ...) and trim
+        return jax.tree.map(
+            lambda leaf: leaf.reshape(
+                (-1,) + leaf.shape[2:]
+            )[:target],
+            results,
         )
 
     def sample_posterior(

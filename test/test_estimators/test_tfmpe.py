@@ -233,6 +233,163 @@ class TestTFMPESampling:
         assert samples.data.shape == (1, 2 * n_tokens, batch_size)
         assert jnp.all(jnp.isfinite(samples.data))
 
+
+class TestTFMPEBatchedSampling:
+    """Test TFMPE batched sampling via nnx.scan."""
+
+    @pytest.fixture
+    def identity_vf(self):
+        """Identity vector field (f=0)."""
+        def vf(tokens, t):
+            return jnp.zeros_like(tokens.data[:, tokens.partition_idx:])
+        return vf
+
+    @pytest.fixture
+    def tfmpe_identity(self, identity_vf, solver):
+        """TFMPE with identity vector field."""
+        rngs = nnx.Rngs(params=jax.random.PRNGKey(0))
+        return TFMPE(
+            vf_network=identity_vf,
+            base_dist=NormalDistribution(rngs=rngs),
+            solver=solver,
+            ode_kwargs={'rtol': 1e-5, 'atol': 1e-5},
+        )
+
+    def test_batched_returns_correct_shape(
+        self, tfmpe_identity
+    ):
+        """Test sample_posterior_batched returns correct shape.
+
+        Given:
+        - 4 samples, batch_size=2
+
+        Then:
+        - Output shape matches input shape
+        - All values are finite
+        """
+        tokens = create_mock_tokens(
+            jnp.zeros((4, 2, 1)),
+            jnp.zeros((4, 2, 1)),
+            sample_ndims=1,
+        )
+
+        samples = tfmpe_identity.sample_posterior_batched(
+            tokens, batch_size=2
+        )
+
+        assert isinstance(samples, type(tokens))
+        assert samples.data.shape == tokens.data.shape
+        assert jnp.all(jnp.isfinite(samples.data))
+
+    def test_batched_preserves_token_metadata(
+        self, tfmpe_identity
+    ):
+        """Test that batched sampling preserves Token metadata.
+
+        Then:
+        - Labels match input labels
+        """
+        tokens = create_mock_tokens(
+            jnp.zeros((4, 2, 1)),
+            jnp.zeros((4, 2, 1)),
+            sample_ndims=1,
+        )
+
+        samples = tfmpe_identity.sample_posterior_batched(
+            tokens, batch_size=2
+        )
+
+        assert jnp.array_equal(samples.labels, tokens.labels)
+
+    def test_batched_with_padding(
+        self, tfmpe_identity
+    ):
+        """Test batched sampling when target is not divisible by batch_size.
+
+        Given:
+        - 5 samples, batch_size=2 (requires padding)
+
+        Then:
+        - Output has correct shape (trimmed to original size)
+        - All values are finite
+        """
+        tokens = create_mock_tokens(
+            jnp.zeros((5, 2, 1)),
+            jnp.zeros((5, 2, 1)),
+            sample_ndims=1,
+        )
+
+        samples = tfmpe_identity.sample_posterior_batched(
+            tokens, batch_size=2
+        )
+
+        assert samples.data.shape == tokens.data.shape
+        assert jnp.all(jnp.isfinite(samples.data))
+
+    def test_batched_deterministic_with_same_seed(
+        self, tfmpe_identity
+    ):
+        """Test batched sampling is deterministic with same RNG seed.
+
+        Given:
+        - TFMPE with identity VF (f=0)
+
+        When:
+        - Call sample_posterior_batched twice with reseeded RNG
+
+        Then:
+        - Results are identical
+        """
+        tokens = create_mock_tokens(
+            jnp.zeros((4, 1, 1)),
+            jnp.zeros((4, 1, 1)),
+            sample_ndims=1,
+        )
+
+        nnx.reseed(tfmpe_identity, params=42)
+        samples1 = tfmpe_identity.sample_posterior_batched(
+            tokens, batch_size=2
+        )
+        nnx.reseed(tfmpe_identity, params=42)
+        samples2 = tfmpe_identity.sample_posterior_batched(
+            tokens, batch_size=2
+        )
+
+        assert jnp.allclose(samples1.data, samples2.data)
+
+    @pytest.mark.parametrize(
+        "n_samples,batch_size",
+        [
+            (1, 1),
+            (4, 2),
+            (4, 4),
+            (5, 2),
+            (7, 3),
+        ],
+    )
+    def test_batched_various_sizes(
+        self, tfmpe_identity, n_samples, batch_size
+    ):
+        """Test batched sampling with various sample/batch size combos.
+
+        Then:
+        - Output shape matches input
+        - All values finite
+        """
+        tokens = create_mock_tokens(
+            jnp.zeros((n_samples, 2, 1)),
+            jnp.zeros((n_samples, 2, 1)),
+            sample_ndims=1,
+        )
+
+        samples = tfmpe_identity.sample_posterior_batched(
+            tokens, batch_size=batch_size
+        )
+
+        assert samples.data.shape == tokens.data.shape
+        assert jnp.all(jnp.isfinite(samples.data))
+
+
 class TestTFMPELogProb:
     """Test TFMPE log probability computation."""
 
