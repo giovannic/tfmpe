@@ -38,8 +38,8 @@ def create_benchmark_tokens(batch_size: int, seq_len: int) -> Tokens:
     )
 
 
-BATCH_SIZE = 32
-SEQ_LENS = [10, 50, 100, 200, 500]
+BATCH_SIZE = 100
+SEQ_LENS = [10, 50, 100, 200, 500, 1_000, 10_000]
 N_WARMUP = 3
 
 PRECISION_MODES = {
@@ -52,11 +52,12 @@ PRECISION_MODES = {
 def _make_transformer(tokens, precision_mode="float32"):
     """Create a Transformer and common inputs for benchmarking."""
     config = TransformerConfig(
-        latent_dim=128,
+        latent_dim=256,
         n_encoder=2,
         n_heads=4,
         n_ff=2,
-        label_dim=32,
+        label_dim=8,
+        attention='cudnn',
         **PRECISION_MODES[precision_mode],
     )
     rngs = nnx.Rngs(0)

@@ -139,6 +139,9 @@ class Transformer(nnx.Module):
 
         # Apply encoder blocks sequentially via scan
         @nnx.scan(in_axes=(nnx.Carry, 0), out_axes=nnx.Carry)
+        @nnx.remat(
+            policy=jax.checkpoint_policies.dots_with_no_batch_dims_saveable,
+        )
         def forward(
             x: Array,
             encoder_block: EncoderBlock,

@@ -53,11 +53,11 @@ class TransformerConfig:
     max_positions: int = 128
     group_dim: int = 8
     max_groups: int = 128
-    dropout: float = 0.1
-    attention: Literal['linear'] | Literal['softmax'] = 'softmax'
+    dropout: float = 0.0
+    attention: Literal['linear'] | Literal['softmax'] | Literal['cudnn'] = 'cudnn'
     activation: Callable = field(default_factory=lambda: nnx.relu)
-    ops_dtype: jnp.dtype = jnp.float32
-    sensitive_ops_dtype: jnp.dtype = jnp.float32
+    ops_dtype: jnp.dtype = jnp.bfloat16
+    sensitive_ops_dtype: jnp.dtype = jnp.bfloat16
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization.

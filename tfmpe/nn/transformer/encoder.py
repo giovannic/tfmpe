@@ -2,6 +2,7 @@
 
 from typing import Callable, Optional
 
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array
 from flax import nnx
@@ -9,6 +10,26 @@ from flax.nnx.nn.attention import dot_product_attention
 
 from .config import TransformerConfig
 from .linear_attention import linear_attention
+
+
+def cudnn_attention(
+    query: Array,
+    key: Array,
+    value: Array,
+    mask: Array | None = None,
+    **kwargs,
+) -> Array:
+    """Flash attention via cuDNN backend.
+
+    Thin wrapper around jax.nn.dot_product_attention that forces
+    the cuDNN implementation and discards Flax-specific kwargs
+    (dropout_rng, dropout_rate, etc.).
+    """
+    if mask is not None:
+        mask = mask.astype(jnp.bool_)
+    return jax.nn.dot_product_attention(
+        query, key, value, mask=mask, implementation="cudnn"
+    )
 
 class FFLayer(nnx.Module):
     """Single feedforward layer with linear, dropout, and activation.
@@ -134,6 +155,9 @@ class MLP(nnx.Module):
         """
 
         @nnx.scan(in_axes=(nnx.Carry, 0), out_axes=nnx.Carry)
+        @nnx.remat(
+            policy=jax.checkpoint_policies.dots_with_no_batch_dims_saveable,
+        )
         def forward(
             x: Array,
             model: FFLayer,
@@ -185,6 +209,8 @@ class EncoderBlock(nnx.Module):
             attention_fn = dot_product_attention
         elif config.attention == 'linear':
             attention_fn = linear_attention
+        elif config.attention == 'cudnn':
+            attention_fn = cudnn_attention
         else:
             raise ValueError(
                 "TransformerConfig specifies unknown attention: {config.attention}"
