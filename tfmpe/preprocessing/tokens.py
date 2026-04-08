@@ -98,6 +98,7 @@ class Tokens:
         functional_inputs: Optional[Dict[str, Array]] = None,
         sample_ndims: int = 1,
         batch_ndims: Optional[Dict[str, int]] = None,
+        pad_to_even: bool = True,
     ) -> 'Tokens':
         """
         Create Tokens from structured PyTree.
@@ -131,7 +132,7 @@ class Tokens:
         """
         tokens, _ = cls._from_pytree_impl(
             data, condition, labeller, functional_inputs,
-            sample_ndims, batch_ndims
+            sample_ndims, batch_ndims, pad_to_even
         )
         return tokens
 
@@ -144,6 +145,7 @@ class Tokens:
         functional_inputs: Optional[Dict[str, Array]] = None,
         sample_ndims: int = 1,
         batch_ndims: Optional[Dict[str, int]] = None,
+        pad_to_even: bool = True,
     ) -> Tuple['Tokens', Callable[['Tokens'], Dict[str, Array]]]:
         """
         Create Tokens from structured PyTree with a decoder function.
@@ -175,7 +177,7 @@ class Tokens:
         """
         return cls._from_pytree_impl(
             data, condition, labeller, functional_inputs,
-            sample_ndims, batch_ndims
+            sample_ndims, batch_ndims, pad_to_even
         )
 
     @classmethod
@@ -187,6 +189,7 @@ class Tokens:
         functional_inputs: Optional[Dict[str, Array]],
         sample_ndims: int,
         batch_ndims: Optional[Dict[str, int]],
+        pad_to_even: bool = True,
     ) -> Tuple['Tokens', Callable[['Tokens'], Dict[str, Array]]]:
         """
         Internal implementation for from_pytree methods.
@@ -303,20 +306,59 @@ class Tokens:
             broadcast_shape
         )
 
+        padding_mask = None
+
+        # Pad to even sequence length for cuDNN flash attention
+        if pad_to_even and total_tokens % 2 == 1:
+            padding_mask = jnp.ones(broadcast_shape)
+            pad_1d = [(0, 0)] * len(broadcast_shape)
+            pad_1d[sample_ndims] = (0, 1)
+
+            labels = jnp.pad(labels, pad_1d, constant_values=0)
+            position = jnp.pad(position, pad_1d, constant_values=0)
+            condition_values = jnp.pad(
+                condition_values, pad_1d, constant_values=0
+            )
+            group_id = jnp.pad(group_id, pad_1d, constant_values=0)
+            padding_mask = jnp.pad(padding_mask, pad_1d, constant_values=0)
+
+            pad_data = [(0, 0)] * len(flat_data.shape)
+            pad_data[sample_ndims] = (0, 1)
+            flat_data = jnp.pad(flat_data, pad_data, constant_values=0)
+
+            if func_inputs_flat is not None:
+                pad_fi = [(0, 0)] * len(func_inputs_flat.shape)
+                pad_fi[sample_ndims] = (0, 1)
+                func_inputs_flat = jnp.pad(
+                    func_inputs_flat, pad_fi, constant_values=0
+                )
+
         tokens = cls(
             data=flat_data,
             labels=labels,
             position=position,
             condition=condition_values,
-            padding_mask=None,
+            padding_mask=padding_mask,
             functional_inputs=func_inputs_flat,
             group_id=group_id,
             partition_idx=partition_idx
         )
 
+        # Capture original token count for decoder to strip padding
+        orig_total_tokens = total_tokens
+
         def decoder(tokens: 'Tokens') -> Dict[str, Array]:
+            data = tokens.data
+            if data.shape[tokens.sample_ndims] > orig_total_tokens:
+                data = data[
+                    tuple(
+                        slice(None) if i != tokens.sample_ndims
+                        else slice(0, orig_total_tokens)
+                        for i in range(len(data.shape))
+                    )
+                ]
             return decode_pytree(
-                tokens.data,
+                data,
                 slices,
                 tokens.sample_shape,
                 is_subset=False
