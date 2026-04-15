@@ -211,6 +211,15 @@ class EncoderBlock(nnx.Module):
             attention_fn = linear_attention
         elif config.attention == 'cudnn':
             attention_fn = cudnn_attention
+        elif config.attention == 'flashattention_v4':
+            from .flash_attention import flash_attention_v4, register_flash_attn_ops
+            head_dim_per_head = latent_dim // n_heads
+            register_flash_attn_ops(
+                head_dim=head_dim_per_head,
+                num_heads=n_heads,
+                dtype=config.ops_dtype,
+            )
+            attention_fn = flash_attention_v4
         else:
             raise ValueError(
                 "TransformerConfig specifies unknown attention: {config.attention}"

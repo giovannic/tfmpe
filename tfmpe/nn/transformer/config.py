@@ -54,7 +54,7 @@ class TransformerConfig:
     group_dim: int = 8
     max_groups: int = 128
     dropout: float = 0.0
-    attention: Literal['linear'] | Literal['softmax'] | Literal['cudnn'] = 'cudnn'
+    attention: Literal['linear'] | Literal['softmax'] | Literal['cudnn'] | Literal['flashattention_v4'] = 'cudnn'
     activation: Callable = field(default_factory=lambda: nnx.relu)
     ops_dtype: jnp.dtype = jnp.bfloat16
     sensitive_ops_dtype: jnp.dtype = jnp.bfloat16
