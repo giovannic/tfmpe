@@ -29,6 +29,7 @@ from flash_attn.cute.flash_fwd_sm120 import FlashAttentionForwardSm120
 from flash_attn.cute.flash_bwd_sm100 import FlashAttentionBackwardSm100
 from flash_attn.cute.flash_bwd_sm120 import FlashAttentionBackwardSm120
 from flash_attn.cute.flash_bwd_preprocess import FlashAttentionBackwardPreprocess
+from flash_attn.cute.flash_bwd_postprocess import FlashAttentionBackwardPostprocess
 from flash_attn.cute.cute_dsl_utils import assume_tensor_aligned
 
 # ---------------------------------------------------------------------------
@@ -154,7 +155,14 @@ class _FwdVarlenWrapper:
 
 
 class _BwdPreWrapper:
-    """Backward preprocess wrapper: computes dpsum, lse_log2, zeros dq_accum."""
+    """Non-varlen backward preprocess wrapper.
+
+    Parameter order follows FFI convention (inputs first, outputs after),
+    not the kernel's native interleaved order. The kernel call inside
+    reorders them: mdPsum/mLSE both have shape (B, H, S) and dtype float32,
+    so swapping them doesn't trip compilation — it just produces silent
+    NaN gradients by reading LSE from the uninitialised mdPsum output slot.
+    """
 
     def __init__(self, kernel):
         self.kernel = kernel
@@ -162,10 +170,12 @@ class _BwdPreWrapper:
     @cute.jit
     def __call__(
         self,
+        # --- inputs (args) ---
         mO: cute.Tensor,
         mdO: cute.Tensor,
-        mdPsum: cute.Tensor,
         mLSE: cute.Tensor,
+        # --- outputs (rets) ---
+        mdPsum: cute.Tensor,
         mLSElog2: cute.Tensor,
         mdQaccum: cute.Tensor,
         stream: cuda.CUstream = None,
@@ -175,12 +185,103 @@ class _BwdPreWrapper:
         # copy atom for O/dO sees only element-level alignment and IR
         # verification rejects the 128-bit copy. Assert it here.
         mO, mdO, mdPsum, mLSE, mLSElog2, mdQaccum = [
-            assume_tensor_aligned(t)
+            assume_tensor_aligned(t)  # type: ignore
             for t in (mO, mdO, mdPsum, mLSE, mLSElog2, mdQaccum)
         ]
         self.kernel(
             mO, mdO, mdPsum, mLSE, mLSElog2, mdQaccum,
             None, None, None,  # cu_seqlens_q, seqused_q, dlse
+            stream=stream,
+        )
+
+
+class _BwdPreVarlenWrapper:
+    """Varlen backward preprocess wrapper.
+
+    Passes ``mCuSeqlensQ`` so the kernel takes the rank-2 layout branch
+    (transpose=[1,0]) for ``mPdPsum`` / ``mLSE`` / ``mLSElog2`` instead of
+    the rank-3 branch. Same FFI argument ordering convention as the
+    non-varlen wrapper.
+    """
+
+    def __init__(self, kernel):
+        self.kernel = kernel
+
+    @cute.jit
+    def __call__(
+        self,
+        # --- inputs (args) ---
+        mO: cute.Tensor,
+        mdO: cute.Tensor,
+        mCuSeqlensQ: cute.Tensor,
+        mLSE: cute.Tensor,
+        # --- outputs (rets) ---
+        mdPsum: cute.Tensor,
+        mLSElog2: cute.Tensor,
+        mdQaccum: cute.Tensor,
+        stream: cuda.CUstream = None,
+    ):
+        mO, mdO, mdPsum, mLSE, mLSElog2, mdQaccum = [
+            assume_tensor_aligned(t)  # type: ignore
+            for t in (mO, mdO, mdPsum, mLSE, mLSElog2, mdQaccum)
+        ]
+        self.kernel(
+            mO, mdO, mdPsum, mLSE, mLSElog2, mdQaccum,
+            mCuSeqlensQ, None, None,  # seqused_q, dlse
+            stream=stream,
+        )
+
+
+class _BwdPostWrapper:
+    """Non-varlen backward postprocess: dQaccum -> dQ.
+
+    The main backward kernel writes dQ into a flat float32 accumulator with
+    an MMA-derived layout; a naïve reshape does not recover (batch, seq,
+    heads, dim). This kernel reads the accumulator with the matching tiled
+    layout and writes dQ in the expected layout, applying softmax_scale and
+    casting to the input dtype.
+    """
+
+    def __init__(self, kernel, softmax_scale: float):
+        self.kernel = kernel
+        self.softmax_scale = softmax_scale
+
+    @cute.jit
+    def __call__(
+        self,
+        # --- inputs (args) ---
+        mdQaccum: cute.Tensor,
+        # --- outputs (rets) ---
+        mdQ: cute.Tensor,
+        stream: cuda.CUstream = None,
+    ):
+        self.kernel(
+            mdQaccum, mdQ, self.softmax_scale,
+            None, None,  # cu_seqlens_q, seqused_q
+            stream=stream,
+        )
+
+
+class _BwdPostVarlenWrapper:
+    """Varlen backward postprocess: dQaccum -> dQ with cu_seqlens."""
+
+    def __init__(self, kernel, softmax_scale: float):
+        self.kernel = kernel
+        self.softmax_scale = softmax_scale
+
+    @cute.jit
+    def __call__(
+        self,
+        # --- inputs (args) ---
+        mdQaccum: cute.Tensor,
+        mCuSeqlensQ: cute.Tensor,
+        # --- outputs (rets) ---
+        mdQ: cute.Tensor,
+        stream: cuda.CUstream = None,
+    ):
+        self.kernel(
+            mdQaccum, mdQ, self.softmax_scale,
+            mCuSeqlensQ, None,  # seqused_q
             stream=stream,
         )
 
@@ -191,6 +292,12 @@ class _BwdWrapper:
     ``supports_semaphore`` is False on SM120 (Sm80 kernel path), where the
     class asserts ``mdQ_semaphore is None``. The FFI still takes an unused
     semaphore tensor for a stable ABI; it is simply dropped.
+
+    ``mdQaccum`` is atomically accumulated into by the kernel; it appears
+    as both an FFI input and output (aliased via ``input_output_aliases``)
+    so JAX observes the mutation after the call returns. The last
+    ``mdQaccum_out`` parameter is the aliased output buffer — the kernel
+    writes through ``mdQaccum`` (same memory), so this one is unused.
     """
 
     def __init__(
@@ -215,6 +322,7 @@ class _BwdWrapper:
         # --- outputs (rets) ---
         mdK: cute.Tensor,
         mdV: cute.Tensor,
+        mdQaccum_out: cute.Tensor,
         stream: cuda.CUstream = None,
     ):
         if cutlass.const_expr(self.supports_semaphore):
@@ -230,6 +338,61 @@ class _BwdWrapper:
                 mQ, mK, mV, mdO, mLSElog2, mdPsum,
                 mdQaccum, mdK, mdV,
                 self.softmax_scale,
+                stream=stream,
+            )
+
+
+class _BwdVarlenWrapper:
+    """Varlen backward wrapper.
+
+    Forwards ``mCuSeqlensQ``/``mCuSeqlensK`` to the Sm80 bwd kernel so it
+    takes the rank-3 varlen branch (Q/dO/dQaccum shaped as
+    ``(total_q, num_heads, head_dim)`` etc.) instead of the rank-4
+    non-varlen branch that would trigger a shape/coord mismatch.
+    """
+
+    def __init__(
+        self, kernel, softmax_scale: float, supports_semaphore: bool = True,
+    ):
+        self.kernel = kernel
+        self.softmax_scale = softmax_scale
+        self.supports_semaphore = supports_semaphore
+
+    @cute.jit
+    def __call__(
+        self,
+        # --- inputs (args) ---
+        mQ: cute.Tensor,
+        mK: cute.Tensor,
+        mV: cute.Tensor,
+        mdO: cute.Tensor,
+        mCuSeqlensQ: cute.Tensor,
+        mCuSeqlensK: cute.Tensor,
+        mLSElog2: cute.Tensor,
+        mdPsum: cute.Tensor,
+        mdQ_sem: cute.Tensor,
+        mdQaccum: cute.Tensor,
+        # --- outputs (rets) ---
+        mdK: cute.Tensor,
+        mdV: cute.Tensor,
+        mdQaccum_out: cute.Tensor,
+        stream: cuda.CUstream = None,
+    ):
+        if cutlass.const_expr(self.supports_semaphore):
+            self.kernel(
+                mQ, mK, mV, mdO, mLSElog2, mdPsum,
+                mdQaccum, mdK, mdV,
+                self.softmax_scale,
+                mCuSeqlensQ=mCuSeqlensQ, mCuSeqlensK=mCuSeqlensK,
+                mdQ_semaphore=mdQ_sem,
+                stream=stream,
+            )
+        else:
+            self.kernel(
+                mQ, mK, mV, mdO, mLSElog2, mdPsum,
+                mdQaccum, mdK, mdV,
+                self.softmax_scale,
+                mCuSeqlensQ=mCuSeqlensQ, mCuSeqlensK=mCuSeqlensK,
                 stream=stream,
             )
 
@@ -445,10 +608,10 @@ def register_flash_attn_ops(
     bwd_pre = FlashAttentionBackwardPreprocess(
         cutlass_dtype, head_dim, head_dim_v, m_block_bwd,
     )
-    bwd_pre_wrapper = _BwdPreWrapper(bwd_pre)
 
     head_dim_rounded = math.ceil(head_dim / 32) * 32
     if not varlen:
+        bwd_pre_wrapper = _BwdPreWrapper(bwd_pre)
         ex_out = _example_tensor((M_ex, M_ex, num_heads, head_dim_v), jax_dtype)
         ex_dout = _example_tensor((M_ex, M_ex, num_heads, head_dim_v), jax_dtype)
         ex_dpsum = _example_tensor((M_ex, num_heads, M_ex), jnp.float32)
@@ -458,9 +621,17 @@ def register_flash_attn_ops(
         ex_dq_accum = _example_tensor(
             (M_ex, num_heads, seqlen_rounded * head_dim_rounded), jnp.float32,
         )
+        bwd_pre_compiled = cute.compile(
+            bwd_pre_wrapper,
+            ex_out, ex_dout, ex_lse_pre,          # inputs
+            ex_dpsum, ex_lse_log2, ex_dq_accum,   # outputs
+            stream, options="--enable-tvm-ffi",
+        )
     else:
+        bwd_pre_wrapper = _BwdPreVarlenWrapper(bwd_pre)
         ex_out = _example_tensor((M_ex, num_heads, head_dim_v), jax_dtype)
         ex_dout = _example_tensor((M_ex, num_heads, head_dim_v), jax_dtype)
+        ex_cu_pre = _example_tensor_int32((3,))  # batch+1
         ex_dpsum = _example_tensor((num_heads, M_ex), jnp.float32)
         ex_lse_pre = _example_tensor((num_heads, M_ex), jnp.float32)
         ex_lse_log2 = _example_tensor((num_heads, M_ex), jnp.float32)
@@ -468,13 +639,12 @@ def register_flash_attn_ops(
         ex_dq_accum = _example_tensor(
             (num_heads, seqlen_rounded * head_dim_rounded), jnp.float32,
         )
-
-    bwd_pre_compiled = cute.compile(
-        bwd_pre_wrapper,
-        ex_out, ex_dout,
-        ex_dpsum, ex_lse_pre, ex_lse_log2, ex_dq_accum,
-        stream, options="--enable-tvm-ffi",
-    )
+        bwd_pre_compiled = cute.compile(
+            bwd_pre_wrapper,
+            ex_out, ex_dout, ex_cu_pre, ex_lse_pre,   # inputs
+            ex_dpsum, ex_lse_log2, ex_dq_accum,       # outputs
+            stream, options="--enable-tvm-ffi",
+        )
     bwd_pre_name = f"cute.fa4_bwd_pre_{cache_key}"
     jax_tvm_ffi.register_ffi_target(
         bwd_pre_name, bwd_pre_compiled,
@@ -484,12 +654,12 @@ def register_flash_attn_ops(
 
     # ---- Backward main ----
     fa_bwd = BwdCls(**bwd_kwargs)
-    bwd_wrapper = _BwdWrapper(
-        fa_bwd, softmax_scale, supports_semaphore=bwd_supports_semaphore,
-    )
 
     # Example tensors for backward compile
     if not varlen:
+        bwd_wrapper = _BwdWrapper(
+            fa_bwd, softmax_scale, supports_semaphore=bwd_supports_semaphore,
+        )
         ex_bq = _example_tensor((M_ex, M_ex, num_heads, head_dim), jax_dtype)
         ex_bk = _example_tensor((M_ex, M_ex, num_heads_kv, head_dim), jax_dtype)
         ex_bv = _example_tensor((M_ex, M_ex, num_heads_kv, head_dim_v), jax_dtype)
@@ -503,11 +673,24 @@ def register_flash_attn_ops(
         )
         ex_dk = _example_tensor((M_ex, M_ex, num_heads_kv, head_dim), jax_dtype)
         ex_dv = _example_tensor((M_ex, M_ex, num_heads_kv, head_dim_v), jax_dtype)
+
+        bwd_compiled = cute.compile(
+            bwd_wrapper,
+            ex_bq, ex_bk, ex_bv, ex_bdout, ex_blse, ex_bdpsum,
+            ex_dq_sem, ex_dq_acc,
+            ex_dk, ex_dv, ex_dq_acc,  # ex_dq_acc also appears as aliased output
+            stream, options="--enable-tvm-ffi",
+        )
     else:
+        bwd_wrapper = _BwdVarlenWrapper(
+            fa_bwd, softmax_scale, supports_semaphore=bwd_supports_semaphore,
+        )
         ex_bq = _example_tensor((M_ex, num_heads, head_dim), jax_dtype)
         ex_bk = _example_tensor((M_ex, num_heads_kv, head_dim), jax_dtype)
         ex_bv = _example_tensor((M_ex, num_heads_kv, head_dim_v), jax_dtype)
         ex_bdout = _example_tensor((M_ex, num_heads, head_dim_v), jax_dtype)
+        ex_cu_q_bwd = _example_tensor_int32((3,))
+        ex_cu_k_bwd = _example_tensor_int32((3,))
         ex_blse = _example_tensor((num_heads, M_ex), jnp.float32)
         ex_bdpsum = _example_tensor((num_heads, M_ex), jnp.float32)
         n_mblocks = math.ceil(M_ex / m_block_bwd)
@@ -518,13 +701,15 @@ def register_flash_attn_ops(
         ex_dk = _example_tensor((M_ex, num_heads_kv, head_dim), jax_dtype)
         ex_dv = _example_tensor((M_ex, num_heads_kv, head_dim_v), jax_dtype)
 
-    bwd_compiled = cute.compile(
-        bwd_wrapper,
-        ex_bq, ex_bk, ex_bv, ex_bdout, ex_blse, ex_bdpsum,
-        ex_dq_sem, ex_dq_acc,
-        ex_dk, ex_dv,
-        stream, options="--enable-tvm-ffi",
-    )
+        bwd_compiled = cute.compile(
+            bwd_wrapper,
+            ex_bq, ex_bk, ex_bv, ex_bdout,
+            ex_cu_q_bwd, ex_cu_k_bwd,
+            ex_blse, ex_bdpsum,
+            ex_dq_sem, ex_dq_acc,
+            ex_dk, ex_dv, ex_dq_acc,  # ex_dq_acc also appears as aliased output
+            stream, options="--enable-tvm-ffi",
+        )
     bwd_name = f"cute.fa4_bwd_{cache_key}"
     jax_tvm_ffi.register_ffi_target(
         bwd_name, bwd_compiled,
@@ -532,22 +717,61 @@ def register_flash_attn_ops(
         platform="gpu",
     )
 
+    # ---- Backward postprocess: dQaccum (flat MMA layout) -> dQ ----
+    # Must match the bwd main's num_threads/AtomLayoutMdQ/dQ_swapAB so the
+    # flat dQaccum layout read here matches the one written by the bwd kernel.
+    bwd_post = FlashAttentionBackwardPostprocess(
+        cutlass_dtype,
+        head_dim=head_dim,
+        arch=arch,
+        tile_m=m_block_bwd,
+        num_threads=128,
+        AtomLayoutMdQ=4,
+        dQ_swapAB=False,
+    )
+    if not varlen:
+        bwd_post_wrapper = _BwdPostWrapper(bwd_post, softmax_scale)
+        ex_post_dq = _example_tensor(
+            (M_ex, M_ex, num_heads, head_dim), jax_dtype,
+        )
+        bwd_post_compiled = cute.compile(
+            bwd_post_wrapper,
+            ex_dq_acc,     # input: dq_accum
+            ex_post_dq,    # output: dq in q-layout
+            stream, options="--enable-tvm-ffi",
+        )
+    else:
+        bwd_post_wrapper = _BwdPostVarlenWrapper(bwd_post, softmax_scale)
+        ex_post_cu = _example_tensor_int32((3,))
+        ex_post_dq = _example_tensor((M_ex, num_heads, head_dim), jax_dtype)
+        bwd_post_compiled = cute.compile(
+            bwd_post_wrapper,
+            ex_dq_acc, ex_post_cu,   # inputs
+            ex_post_dq,              # output
+            stream, options="--enable-tvm-ffi",
+        )
+    bwd_post_name = f"cute.fa4_bwd_post_{cache_key}"
+    jax_tvm_ffi.register_ffi_target(
+        bwd_post_name, bwd_post_compiled,
+        arg_spec=["args", "rets"],
+        platform="gpu",
+    )
+
     # ---- Build custom_vjp wrapper ----
     _build_attn_fn(
-        cache_key, fwd_name, bwd_pre_name, bwd_name,
+        cache_key, fwd_name, bwd_pre_name, bwd_name, bwd_post_name,
         head_dim, head_dim_v, num_heads, num_heads_kv,
         m_block_bwd, jax_dtype, varlen,
     )
 
 
 def _build_attn_fn(
-    cache_key, fwd_name, bwd_pre_name, bwd_name,
+    cache_key, fwd_name, bwd_pre_name, bwd_name, bwd_post_name,
     head_dim, head_dim_v, num_heads, num_heads_kv,
     m_block_bwd, jax_dtype, varlen,
 ):
     """Create the custom_vjp-wrapped attention function and cache it."""
     head_dim_rounded = math.ceil(head_dim / 32) * 32
-    softmax_scale = 1.0 / math.sqrt(head_dim)
 
     if not varlen:
         # ---- Non-varlen path ----
@@ -618,24 +842,28 @@ def _build_attn_fn(
                 (batch * num_heads * n_mblocks,), dtype=jnp.int32,
             )
 
-            # Main backward
-            dk, dv = jax.ffi.ffi_call(
+            # Main backward. dq_accum is atomically accumulated in place by
+            # the kernel; declare it as an output aliased to input 7 so JAX
+            # observes the mutation.
+            dk, dv, dq_accum = jax.ffi.ffi_call(
                 bwd_name,
                 (
                     jax.ShapeDtypeStruct(k.shape, k.dtype),
                     jax.ShapeDtypeStruct(v.shape, v.dtype),
+                    jax.ShapeDtypeStruct(dq_accum.shape, dq_accum.dtype),
                 ),
+                input_output_aliases={7: 2},
                 vmap_method="broadcast_all",
             )(q, k, v, g, lse_log2, dpsum, dq_sem, dq_accum)
 
-            # Postprocess: reshape flat accumulator to (B, S_rounded, H, D_pad),
-            # crop to (B, S, H, D), scale, and cast back to input dtype.
-            dq_reshaped = dq_accum.reshape(
-                batch, num_heads, seqlen_q_rounded, head_dim_rounded,
-            ).transpose(0, 2, 1, 3)
-            dq = (
-                dq_reshaped[:, :seqlen_q, :, :head_dim] * softmax_scale
-            ).astype(q.dtype)
+            # Postprocess kernel reads dQaccum with the matching MMA tile
+            # layout, applies softmax_scale, and writes dQ in q-layout cast
+            # to q.dtype. Manual reshape/transpose can't recover this layout.
+            (dq,) = jax.ffi.ffi_call(
+                bwd_post_name,
+                (jax.ShapeDtypeStruct(q.shape, q.dtype),),
+                vmap_method="broadcast_all",
+            )(dq_accum)
             return dq, dk, dv
 
         attn_fn.defvjp(attn_fwd, attn_bwd)
@@ -698,24 +926,33 @@ def _build_attn_fn(
                     ),
                 ),
                 vmap_method="broadcast_all",
-            )(o, g, lse)
+            )(o, g, cu_seqlens_q, lse)
 
             dq_sem = jnp.zeros(
                 (num_heads * n_mblocks,), dtype=jnp.int32,
             )
 
-            dk, dv = jax.ffi.ffi_call(
+            dk, dv, dq_accum = jax.ffi.ffi_call(
                 bwd_name,
                 (
                     jax.ShapeDtypeStruct(k.shape, k.dtype),
                     jax.ShapeDtypeStruct(v.shape, v.dtype),
+                    jax.ShapeDtypeStruct(dq_accum.shape, dq_accum.dtype),
                 ),
+                input_output_aliases={9: 2},
                 vmap_method="broadcast_all",
-            )(q, k, v, g, lse_log2, dpsum, dq_sem, dq_accum)
-
-            dq = (dq_accum[:total_q, :head_dim] * softmax_scale).astype(
-                q.dtype,
+            )(
+                q, k, v, g,
+                cu_seqlens_q, cu_seqlens_k,
+                lse_log2, dpsum,
+                dq_sem, dq_accum,
             )
+
+            (dq,) = jax.ffi.ffi_call(
+                bwd_post_name,
+                (jax.ShapeDtypeStruct(q.shape, q.dtype),),
+                vmap_method="broadcast_all",
+            )(dq_accum, cu_seqlens_q)
             return dq, dk, dv, None, None  # None for cu_seqlens grads
 
         attn_fn.defvjp(attn_fwd, attn_bwd)
@@ -751,11 +988,27 @@ def _mask_to_seqlens(mask: Array) -> tuple[Array, Array]:
     return seqlens_q, seqlens_k
 
 
+def _valid_mask(seqlens: Array, max_len: int) -> Array:
+    """Boolean mask of shape ``(batch, max_len)``: True where token valid."""
+    return jnp.arange(max_len)[None, :] < seqlens[:, None]
+
+
+def _pack_order(valid: Array) -> Array:
+    """Permutation that places valid tokens first in original order.
+
+    Stable-sort on the negated validity flag sends True entries to the
+    front while preserving per-batch order. Invalid tokens end up at the
+    tail and are ignored by the kernel (cu_seqlens bounds the work).
+    """
+    return jnp.argsort(jnp.logical_not(valid).reshape(-1).astype(jnp.int32),
+                       stable=True)
+
+
 def _pack_varlen(
     query: Array, key: Array, value: Array,
     seqlens_q: Array, seqlens_k: Array,
-) -> tuple[Array, Array, Array, Array, Array]:
-    """Pack padded tensors into contiguous varlen format.
+) -> tuple[Array, Array, Array, Array, Array, Array]:
+    """Compact padded tensors into contiguous varlen format.
 
     Parameters
     ----------
@@ -766,8 +1019,12 @@ def _pack_varlen(
 
     Returns
     -------
-    q_packed, k_packed, v_packed : contiguous varlen tensors
-    cu_seqlens_q, cu_seqlens_k : cumulative seq lengths, shape (batch+1,)
+    q_packed, k_packed, v_packed : tensors shaped (batch*seqlen, ...) with
+        valid tokens compacted to the front and padding tokens at the tail.
+    cu_seqlens_q, cu_seqlens_k : cumulative seq lengths, shape (batch+1,).
+    order_q : permutation used for q packing (shape batch*seqlen_q).
+        The inverse permutation is used by ``_unpack_varlen`` to scatter
+        the varlen output back to padded layout.
     """
     cu_seqlens_q = jnp.concatenate(
         [jnp.zeros(1, dtype=jnp.int32), jnp.cumsum(seqlens_q)],
@@ -776,24 +1033,35 @@ def _pack_varlen(
         [jnp.zeros(1, dtype=jnp.int32), jnp.cumsum(seqlens_k)],
     )
 
-    # For simplicity, flatten batch*seqlen → total_tokens.
-    # Tokens beyond seqlen are padding but the kernel uses cu_seqlens
-    # to skip them.
     batch, sq = query.shape[:2]
     sk = key.shape[1]
-    q_packed = query.reshape(batch * sq, *query.shape[2:])
-    k_packed = key.reshape(batch * sk, *key.shape[2:])
-    v_packed = value.reshape(batch * sk, *value.shape[2:])
 
-    return q_packed, k_packed, v_packed, cu_seqlens_q, cu_seqlens_k
+    valid_q = _valid_mask(seqlens_q, sq)
+    valid_k = _valid_mask(seqlens_k, sk)
+    order_q = _pack_order(valid_q)
+    order_k = _pack_order(valid_k)
+
+    q_packed = query.reshape(batch * sq, *query.shape[2:])[order_q]
+    k_packed = key.reshape(batch * sk, *key.shape[2:])[order_k]
+    v_packed = value.reshape(batch * sk, *value.shape[2:])[order_k]
+
+    return (
+        q_packed, k_packed, v_packed,
+        cu_seqlens_q, cu_seqlens_k,
+        order_q,
+    )
 
 
 def _unpack_varlen(
     out_packed: Array,
     batch: int, seqlen_q: int, num_heads: int, head_dim_v: int,
+    order_q: Array, valid_q: Array,
 ) -> Array:
-    """Unpack varlen output back to padded shape."""
-    return out_packed.reshape(batch, seqlen_q, num_heads, head_dim_v)
+    """Scatter packed output back to padded shape; zero padding slots."""
+    inv_order = jnp.argsort(order_q)
+    out_flat = out_packed[inv_order]
+    out = out_flat.reshape(batch, seqlen_q, num_heads, head_dim_v)
+    return jnp.where(valid_q[:, :, None, None], out, jnp.zeros_like(out))
 
 
 # ---------------------------------------------------------------------------
@@ -862,11 +1130,15 @@ def flash_attention_v4(
         k_flat = key.reshape(batch_size, kv_len, num_heads_kv, head_dim)
         v_flat = value.reshape(batch_size, kv_len, num_heads_kv, head_dim_v)
 
-        q_packed, k_packed, v_packed, cu_q, cu_k = _pack_varlen(
+        q_packed, k_packed, v_packed, cu_q, cu_k, order_q = _pack_varlen(
             q_flat, k_flat, v_flat, seqlens_q, seqlens_k,
         )
         out_packed = attn_fn(q_packed, k_packed, v_packed, cu_q, cu_k)
-        out = _unpack_varlen(out_packed, batch_size, q_len, num_heads, head_dim_v)
+        valid_q = _valid_mask(seqlens_q, q_len)
+        out = _unpack_varlen(
+            out_packed, batch_size, q_len, num_heads, head_dim_v,
+            order_q, valid_q,
+        )
     else:
         # --- Non-varlen path ---
         cache_key = (jax_dtype.name, head_dim, head_dim_v, qhead_per_kvhead, arch, False)

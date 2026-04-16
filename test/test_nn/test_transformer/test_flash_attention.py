@@ -105,19 +105,30 @@ class TestMaskUtilities:
         seqlens_q = jnp.array([4, 8, 6], dtype=jnp.int32)
         seqlens_k = jnp.array([4, 8, 6], dtype=jnp.int32)
 
-        qp, kp, vp, cu_q, cu_k = _pack_varlen(q, k, v, seqlens_q, seqlens_k)
+        qp, kp, vp, cu_q, cu_k, order_q = _pack_varlen(
+            q, k, v, seqlens_q, seqlens_k,
+        )
 
         assert qp.shape == (batch * sq, h, d)
         assert kp.shape == (batch * sk, h, d)
         assert cu_q.shape == (batch + 1,)
         assert int(cu_q[0]) == 0
         assert int(cu_q[-1]) == 4 + 8 + 6
+        assert order_q.shape == (batch * sq,)
 
     def test_unpack_roundtrip(self):
         """Pack → FFI output → unpack preserves shape."""
+        from tfmpe.nn.transformer.flash_attention import (
+            _pack_order, _valid_mask,
+        )
         batch, sq, h, dv = 2, 16, 4, 64
+        seqlens_q = jnp.array([10, 16], dtype=jnp.int32)
+        valid_q = _valid_mask(seqlens_q, sq)
+        order_q = _pack_order(valid_q)
         out_packed = jnp.ones((batch * sq, h, dv))
-        out = _unpack_varlen(out_packed, batch, sq, h, dv)
+        out = _unpack_varlen(
+            out_packed, batch, sq, h, dv, order_q, valid_q,
+        )
         assert out.shape == (batch, sq, h, dv)
 
 
@@ -467,6 +478,7 @@ class TestFlashAttentionConfigIntegration:
         """EncoderBlock initializes with flashattention_v4."""
         from tfmpe.nn.transformer.config import TransformerConfig
         from tfmpe.nn.transformer.encoder import EncoderBlock
+        from flax import nnx
 
         config = TransformerConfig(
             latent_dim=64,
@@ -530,10 +542,10 @@ class TestFlashAttentionConfigIntegration:
             dtype=jnp.bfloat16,
         )
 
-        def loss_fn(x):
+        def loss_fn(x, block):
             return block(x, deterministic=True).sum()
 
-        dx = jax.grad(loss_fn)(x)
+        dx = nnx.grad(loss_fn, argnums=0)(x, block)
         assert dx.shape == x.shape
         assert jnp.all(jnp.isfinite(dx)), "Encoder gradient has NaN/Inf"
 
