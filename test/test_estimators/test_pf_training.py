@@ -70,6 +70,7 @@ class TestFitPF:
 
         config = TransformerConfig(
             latent_dim=16, n_encoder=1, n_heads=1, n_ff=2,
+            attention='softmax',
         )
         rngs = nnx.Rngs(params=jax.random.PRNGKey(0), dropout=jax.random.PRNGKey(1))
         transformer = Transformer(config=config, tokens=tokens, rngs=rngs)

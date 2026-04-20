@@ -27,6 +27,26 @@ from ...nn.training import fit_memory_efficient
 from .loss import cfm_loss as _cfm_loss
 
 
+def _sample_sizes_stick_breaking(
+    rng: PRNGKeyArray, budget: int, n_groups: int
+) -> Tuple[dict, PRNGKeyArray]:
+    """Sample a bag of group sizes via stick-breaking (scheme S1).
+
+    Sequentially draws n ~ Uniform{1, ..., min(n_groups, remaining)} until the
+    simulation budget is exhausted. Uses the budget exactly. Returns a dict
+    mapping group size -> number of rows at that size, plus the advanced rng.
+    """
+    counts: dict = {}
+    remaining = int(budget)
+    while remaining > 0:
+        max_n = min(n_groups, remaining)
+        rng, key = jax.random.split(rng)
+        n = int(jax.random.randint(key, (), 1, max_n + 1))
+        counts[n] = counts.get(n, 0) + 1
+        remaining -= n
+    return counts, rng
+
+
 def fit_pf(
     tfmpe_global: TFMPE,
     tfmpe_local: TFMPE,
@@ -103,17 +123,17 @@ def fit_pf(
          ((global_train_loss, global_val_loss),
           (local_train_loss, local_val_loss)))
     """
-    # Budget: a sample at group count n costs n simulations.
-    # sum(samples_per_n * n for n in 1..n_groups) ≈ n_samples
-    budget_unit = n_groups * (n_groups + 1) // 2
-    samples_per_n = n_samples // budget_unit
-    val_samples_per_n = max(1, n_val_samples // budget_unit)
+    # Budget: a sample at group count n costs n simulations. Sizes are drawn
+    # via stick-breaking (scheme S1): n ~ Uniform{1, ..., min(n_groups,
+    # remaining)} until the budget is exhausted. This uses the full budget
+    # exactly and does not require a minimum of one sample per size.
+    train_counts, rng = _sample_sizes_stick_breaking(rng, n_samples, n_groups)
+    val_counts, rng = _sample_sizes_stick_breaking(rng, n_val_samples, n_groups)
 
-    total_train_samples = samples_per_n * n_groups
+    total_train_samples = sum(train_counts.values())
     assert total_train_samples >= batch_size, (
         f"n_samples={n_samples} too small for n_groups={n_groups}: "
-        f"total_train_samples={total_train_samples} < batch_size={batch_size}. "
-        f"Need n_samples >= {batch_size * budget_unit // n_groups}."
+        f"total_train_samples={total_train_samples} < batch_size={batch_size}."
     )
 
     # ----------------------------------------------------------------
@@ -122,12 +142,12 @@ def fit_pf(
     data_per_n = {}  # n -> (theta_g, theta_l, y, f_in)
     global_train_tokens = None
 
-    for n in range(1, n_groups + 1):
+    for n, count in sorted(train_counts.items()):
         rng, key_f_in, key_prior, key_sim = jax.random.split(rng, 4)
 
-        f_in = f_in_fn(key_f_in, samples_per_n, *f_in_args) if f_in_fn else None
+        f_in = f_in_fn(key_f_in, count, *f_in_args) if f_in_fn else None
 
-        theta = prior_fn(key_prior, n, samples_per_n, f_in)
+        theta = prior_fn(key_prior, n, count, f_in)
         y = simulator_fn(key_sim, theta, n, f_in)
 
         theta_g = {k: v for k, v in theta.items() if k in global_names}
@@ -150,12 +170,12 @@ def fit_pf(
     # Generate global validation tokens (varying n_groups)
     global_val_tokens = None
 
-    for n in range(1, n_groups + 1):
+    for n, count in sorted(val_counts.items()):
         rng, key_f_in, key_prior, key_sim = jax.random.split(rng, 4)
 
-        val_f_in = f_in_fn(key_f_in, val_samples_per_n, *f_in_args) if f_in_fn else None
+        val_f_in = f_in_fn(key_f_in, count, *f_in_args) if f_in_fn else None
 
-        val_theta = prior_fn(key_prior, n, val_samples_per_n, val_f_in)
+        val_theta = prior_fn(key_prior, n, count, val_f_in)
         val_y = simulator_fn(key_sim, val_theta, n, val_f_in)
 
         val_theta_g = {k: v for k, v in val_theta.items() if k in global_names}
@@ -195,7 +215,7 @@ def fit_pf(
     # ----------------------------------------------------------------
     local_train_tokens = None
 
-    for n in range(1, n_groups + 1):
+    for n in sorted(data_per_n):
         theta_g, theta_l, y, f_in = data_per_n[n]
 
         # Create sampling tokens from {y, theta_g} with condition=y keys
