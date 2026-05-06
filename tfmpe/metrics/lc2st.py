@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 def _fit_classifier(
     seed: jnp.ndarray,
-    classifier: Classifier, 
+    classifier: Classifier,
     u: jnp.ndarray,
     labels: jnp.ndarray,
     num_epochs=100,
@@ -31,7 +31,7 @@ def _fit_classifier(
 
     data = {"data": {"u": u[:n_split], "y": labels[:n_split]}}
     val = {"data": {"u": u[n_split:], "y": labels[n_split:]}}
-    
+
     opt = nnx.Optimizer(classifier, optimizer, wrt=nnx.Param)
 
     return fit_memory_efficient(
@@ -49,7 +49,7 @@ def _fit_classifier(
 
 def _train_lc2st_classifiers(
     rng_key: Array,
-    d_cal: Tuple[Array, Array, Array], 
+    d_cal: Tuple[Array, Array, Array],
     classifier: MultiFoldBinaryMLPClassifier,
     null_classifier: MultiBinaryMLPClassifier,
     num_epochs: int,
@@ -57,12 +57,12 @@ def _train_lc2st_classifiers(
 ) -> None:
     """
     Local-Classifier 2 Sample Test – training both main and null classifiers.
-    
+
     Input:
         rng_key: JAX PRNG key for reproducibility.
         d_cal: Calibration data tuple (x, theta, theta_q) where:
             - x: observations from p(x|theta)
-            - theta: parameters from joint distribution p(theta, x)  
+            - theta: parameters from joint distribution p(theta, x)
             - theta_q: parameters from estimated posterior q(theta|x)
         classifier: Main binary classifier for (x, theta) concatenated input
         null_classifier: Multiple null classifiers for permuted label training
@@ -88,7 +88,7 @@ def _train_lc2st_classifiers(
     n_ensemble = classifier.n
     n_folds = classifier.n_fold
     dim = u_main.shape[-1]
-    
+
     # Implement folds
     shift = N_cal // n_folds
     if n_folds > 1:
@@ -131,24 +131,27 @@ def _train_lc2st_classifiers(
 
     # Create 3D input for null classifiers: (batch_size, n_classifiers, feature_dim)
     u_null_base = jnp.concatenate([u_joint, u_posterior], axis=0)  # (2*N_cal, feature_dim)
+    print("Printing shapes for debugging:")
+    print(f"u_null_base shape: {u_null_base.shape}")
+    print(f"n_null: {n_null}")
+    print("2*N_cal:", 2*N_cal)
     u_null = jnp.broadcast_to(
-        u_null_base[None, :, :], 
-        (n_null, 2*N_cal, u_null_base.shape[-1])
-    ).transpose(1, 0, 2)  # (2*N_cal, n_classifiers, feature_dim)
+        u_null_base[:, None, :],
+        (2*N_cal, n_null, u_null_base.shape[-1])) # (2*N_cal, n_classifiers, feature_dim)
 
     # Generate different permuted labels for each null classifier
     base_labels = jnp.concatenate([jnp.zeros(N_cal), jnp.ones(N_cal)], axis=0)
     null_keys = jr.split(null_key, n_null)
-    
+
     def permute_labels(key):
         return jr.permutation(key, base_labels)
-    
+
     # Create permuted labels for each classifier
     permuted_labels = jnp.stack([
         permute_labels(key)
         for key in null_keys
     ], axis=1)  # (2*N_cal, n_classifiers)
-    
+
     _fit_classifier(
         null_key,
         null_classifier,
@@ -162,19 +165,19 @@ def _train_lc2st_classifiers(
 
 def _evaluate_lc2st(
     observation: Array,
-    posterior_samples: Array, 
+    posterior_samples: Array,
     main_classifier: MultiFoldBinaryMLPClassifier,
     null_classifier: MultiBinaryMLPClassifier,
 ) -> Tuple[Array, Array]:
     """
     Local-Classifier 2 Sample Test evaluation in posterior space.
-    
+
     Input:
         observation: The specific observation to evaluate consistency at.
         posterior_samples: Samples from estimated posterior q(theta|observation).
         main_classifier: Main classifier trained to distinguish joint vs posterior.
         null_classifier: Null classifiers trained with permuted labels.
-    
+
     Output:
         null_test_statistics: Test statistics for each null classifier.
         t_mse_val: The calculated MSE test statistic for posterior samples.
@@ -184,10 +187,10 @@ def _evaluate_lc2st(
     null_classifier.eval()
     n_samples = posterior_samples.shape[0]
     n_null = null_classifier.n
-    
+
     # Create inputs for main classifier: (observation, posterior_samples)
     observation_broadcast = jnp.broadcast_to(
-        observation[None, :], 
+        observation[None, :],
         (n_samples, observation.shape[0])
     )
     u_main = jnp.concatenate([observation_broadcast, posterior_samples], axis=-1)
@@ -203,18 +206,18 @@ def _evaluate_lc2st(
     # t̂MSE = (1/n_samples) * sum((d_main(observation, theta_i) - 1/2)^2)
     d_main = main_classifier(u_main_ens)
     t_mse_val = jnp.mean((d_main - 0.5)**2)
-    
+
     # Create 3D inputs for null classifiers
     u_null = jnp.broadcast_to(
         u_main[None, :, :],
         (n_null, n_samples, u_main.shape[-1])
     ).transpose(1, 0, 2)  # (n_samples, n_null, feature_dim)
-    
+
     # Compute null test statistics
     # t̂null_h = (1/n_samples) * sum((d_null_h(observation, theta_i) - 1/2)^2)
     d_null = null_classifier(u_null)  # (n_samples, n_null)
     null_test_statistics = jnp.mean((d_null - 0.5)**2, axis=0)  # (n_null,)
-    
+
     return null_test_statistics, t_mse_val
 
 @dataclass

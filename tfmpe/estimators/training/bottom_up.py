@@ -256,8 +256,8 @@ def fit_bottom_up(
             delta=1e-3
         )
         train_loss_local, val_loss_local = first_losses
-        print("train_loss_local", train_loss_local)
-        print("val_loss_local", val_loss_local)
+        print("train_loss_local", train_loss_local.shape)
+        print("val_loss_local", val_loss_local.shape)
 
         # Extract globals and expand to n=n_groups
         if f_in_fn is not None:
@@ -390,7 +390,7 @@ def fit_bottom_up(
         # Second fit_fast (back to training mode)
         tfmpe_global.train()
         rng, key_fit = jax.random.split(rng)
-        print('fit_memory_efficient')
+        print('fit_memory_efficient for global posterior')
         tfmpe_global, second_losses = fit_memory_efficient(
             model=tfmpe_global,
             train=global_train_tokens,

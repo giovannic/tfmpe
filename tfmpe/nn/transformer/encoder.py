@@ -21,12 +21,19 @@ def cudnn_attention(
 ) -> Array:
     """Flash attention via cuDNN backend.
 
-    Thin wrapper around jax.nn.dot_product_attention that forces
-    the cuDNN implementation and discards Flax-specific kwargs
-    (dropout_rng, dropout_rate, etc.).
+    Accepts either a 1-D integer array of shape (batch,) as seq lengths
+    (varlen path, no dense mask materialized) or a boolean mask
+    (batch, 1, q_len, kv_len) for the standard path.
+    Discards Flax-specific kwargs (dropout_rng, dropout_rate, etc.).
     """
     if mask is not None:
-        mask = mask.astype(jnp.bool_)
+        # Varlen flash attention: seq_lengths avoids any dense mask
+        return jax.nn.dot_product_attention(
+            query, key, value,
+            query_seq_lengths=mask,
+            key_value_seq_lengths=mask,
+            implementation="cudnn",
+        )
     return jax.nn.dot_product_attention(
         query, key, value, mask=mask, implementation="cudnn"
     )
