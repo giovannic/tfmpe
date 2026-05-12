@@ -1,7 +1,4 @@
-"""Training loops for TFMPE models.
-
-Provides speed-optimized and memory-efficient training implementations.
-"""
+"""Loss for TFMPE estimators"""
 
 import jax
 from jax import numpy as jnp

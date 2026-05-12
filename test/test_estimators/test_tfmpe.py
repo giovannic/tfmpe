@@ -572,6 +572,8 @@ class TestPosteriorSamplingBenchmark:
             n_encoder=1,
             n_heads=1,
             n_ff=2,
+            max_positions=128,
+            max_groups=128,
         )
         rngs = nnx.Rngs(
             params=jax.random.PRNGKey(0),
@@ -655,6 +657,8 @@ class TestPosteriorSamplingScaling:
             n_encoder=2,
             n_heads=16,
             n_ff=2,
+            max_positions=128,
+            max_groups=128,
             attention=attention,
             ops_dtype=ops_dtype,
             sensitive_ops_dtype=sensitive_ops_dtype,

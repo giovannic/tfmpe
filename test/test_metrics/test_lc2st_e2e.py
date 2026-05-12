@@ -70,7 +70,5 @@ def test_lc2st_on_theoretical_distribution(dim, train_size):
     r_bad = run_lc2st(ev_key, d_cal_bad, observation, theta_post_bad)
 
     assert r_good.main_stat < r_bad.main_stat
-    # assert r_good.main_stat < r_good.critical_value(0.95)
-    # assert r_bad.main_stat > r_bad.critical_value(0.95)
     assert r_good.critical_value(.95) < 0.15
     assert r_bad.critical_value(.95) < 0.15

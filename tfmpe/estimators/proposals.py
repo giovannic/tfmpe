@@ -25,6 +25,7 @@ def truncated_proposal_rejection(
     """Sample truncated proposal via sampling importance resampling"""
     if n_batch is None:
         n_batch = n_samples
+    model.eval()
     estimate_key, key = jr.split(key)
 
     samples, log_prob = _batch_sample(
@@ -96,6 +97,7 @@ def truncated_proposal_sir(
     """Sample truncated proposal via sampling importance resampling"""
     if n_batch is None:
         n_batch = n_samples
+    model.eval()
     estimate_key, resample_key = jr.split(key)
 
     samples, log_prob = _batch_sample(

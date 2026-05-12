@@ -143,17 +143,21 @@ def fit_nn(
         if val is not None:
             epoch_rng, val_key = jr.split(epoch_rng)
 
+            model.eval()
             val_loss = compute_val_loss(model, val, val_key)
+            model.train()
             val_losses_list.append(val_loss)
 
+            val_loss_f = float(val_loss)
+
             # Update progress bar with losses
-            pbar.set_postfix(train_loss=f"{float(train_loss):.4f}", val_loss=f"{float(val_loss):.4f}")
+            pbar.set_postfix(train_loss=f"{float(train_loss):.4f}", val_loss=f"{val_loss_f:.4f}")
 
             # Early stopping check
             if early_stopping_enabled:
-                if best_val_loss - float(val_loss) > delta:
+                if best_val_loss - val_loss_f > delta:
                     # Improvement found
-                    best_val_loss = float(val_loss)
+                    best_val_loss = val_loss_f
                     epochs_without_improvement = 0
                     # Save best model state (deep copy since nnx.state returns live view)
                     best_state = tree.map(jnp.copy, nnx.state(model))

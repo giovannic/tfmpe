@@ -174,18 +174,27 @@ class TFMPE(nnx.Module):
         Parameters
         ----------
         vf_network : TokenisedVectorField
-            Vector field network f(context, params, t) -> Array.
-            Must be an nnx.Module so its state is captured and
-            RNG streams are properly managed during training.
+            Vector field network ``f(tokens, time) -> velocity``.
+            Must be an ``nnx.Module`` so its state (including RNG
+            streams) is captured under NNX transformations.
         base_dist : BaseDistribution
-            Base distribution with sample(shape) and
-            log_prob(x) methods. Example: NormalDistribution(rngs)
+            Base distribution with ``sample(shape)`` and
+            ``log_prob(x)`` methods; used as the source distribution
+            at ``t=0``. Example: ``NormalDistribution(rngs)``.
         solver : diffrax solver, optional
-            ODE solver instance. Default: Heun()
+            ODE solver instance used for both forward sampling and
+            the augmented backward solve. Default: ``diffrax.Dopri5()``.
         ode_kwargs : dict, optional
-            ODE solver options with keys:
-            - 'rtol': relative tolerance (default: 1e-5)
-            - 'atol': absolute tolerance (default: 1e-5)
+            ODE solver tolerances with keys:
+
+            - ``'rtol'``: relative tolerance (default: ``1e-5``)
+            - ``'atol'``: absolute tolerance (default: ``1e-5``)
+
+        Raises
+        ------
+        ValueError
+            If either ``rtol`` or ``atol`` in ``ode_kwargs`` is
+            non-positive.
         """
         self.vf_network = vf_network
         self.base_dist = base_dist

@@ -47,72 +47,98 @@ def fit_bottom_up(
 
     Each round alternates between local likelihood training
     (n=1 local groups) and global posterior training
-    (n=n_groups local groups).
+    (n=n_groups local groups). After round 0, subsequent rounds
+    draw parameters from a truncated SIR proposal targeting
+    ``y_obs`` instead of from the prior.
 
-    Currently only supports n_rounds=1. Each round makes two
-    training calls:
+    Each round makes two training calls:
     1. Train p(y|theta) with n=1 local parameters
     2. Train p(theta,z|y) with n=n_groups local parameters
 
     Parameters
     ----------
-    tfmpe : TFMPE
-        TFMPE model to train
+    tfmpe : TFMPE | List[TFMPE]
+        Either a single TFMPE used for both the local-likelihood
+        and global-posterior fits, or a 2-list
+        ``[tfmpe_local, tfmpe_global]`` of distinct models.
     y_obs : Dict[str, Array]
-        Observed data with keys matching simulator output
+        Observed data with keys matching simulator output. Used
+        from round 1 onward to build the SIR proposal.
     simulator_fn : Callable
-        Function: (rng, params_dict, n) -> observations_dict
+        Function: ``(rng, params_dict, n, f_in) -> observations_dict``.
     prior_fn : Callable
-        Function: (rng, n, n_samples) -> parameters_dict
+        Function: ``(rng, n, n_samples, f_in) -> parameters_dict``.
     local_fn : Callable
-        Function: (rng, global_samples, n) -> local_params_dict
+        Function: ``(rng, global_samples, n, f_in) -> local_params_dict``.
     global_names : List[str]
-        Names of global parameters (non-local)
+        Names of global parameters (non-local).
     n_groups : int
-        Number of local groups in full hierarchical model
+        Number of local groups in full hierarchical model.
     n_rounds : int
-        Number of training rounds (currently only 1 supported)
+        Number of training rounds. Must be >= 1.
     n_samples_per_round : int
-        Number of parameter samples per round
+        Number of parameter samples per round.
     n_val_samples : int
-        Number of validation samples
-    opt : nnx.Optimizer
-        NNX optimizer instance (pre-initialized with tfmpe)
+        Number of validation samples.
+    opt : nnx.Optimizer | List[nnx.Optimizer]
+        Optimizer(s) paired with ``tfmpe``. If ``tfmpe`` is a list,
+        ``opt`` must be a matching list ``[local_opt, global_opt]``.
     n_iter_per_round : int
-        Training iterations per round
+        Training iterations per round (per fit).
     batch_size : int
-        Number of samples per batch
+        Number of samples per batch.
     rng : PRNGKeyArray
-        PRNG key for sampling
-    independence : Independence
-        Independence structure for token creation
+        PRNG key for sampling.
     labeller : Labeller
-        Labeller instance with label mapping for all parameter and
-        observation keys. Must include all possible keys from prior_fn,
-        simulator_fn, and local_fn outputs.
+        Labeller with label mapping for all parameter and observation
+        keys. Must include all possible keys from ``prior_fn``,
+        ``simulator_fn``, and ``local_fn`` outputs.
+    prior_log_prob : Callable[[PyTree], float]
+        Log-density of the prior, used by the SIR proposal in rounds
+        beyond the first.
+    prob_transform : Optional[Callable], default None
+        Optional bijection applied inside the SIR proposal (e.g. to
+        map between constrained and unconstrained spaces).
+    obs_f_in : Optional[Dict], default None
+        Functional inputs associated with ``y_obs``. Required when
+        ``n_rounds > 1`` and ``f_in_fn`` is provided.
+    f_in_fn : Optional[Callable], default None
+        Function ``(rng, n_samples, *args) -> f_in_dict`` producing
+        functional inputs for ``prior_fn``/``simulator_fn``/``local_fn``.
+    f_in_args : list, default []
+        Extra positional args for ``f_in_fn`` during the local
+        likelihood phase (n=1).
+    f_in_args_global : list, default []
+        Extra positional args for ``f_in_fn`` during the global
+        posterior phase (n=n_groups).
+    epsilon : float, default 1e-3
+        Truncation tolerance passed to ``truncated_proposal_sir``.
+    sample_batch_size : int, default 1000
+        Batch size for ``sample_posterior_batched`` when generating
+        observations for the global-posterior training set.
 
     Returns
     -------
     Tuple[TFMPE, List[Tuple[Array, Array, Array, Array]]]
-        Trained TFMPE and list of 4-tuples (train_loss_local,
-        val_loss_local, train_loss_global, val_loss_global),
-        one per round, where each loss array has shape
-        (n_iter_per_round,)
+        Trained TFMPE (the global model if a list was passed) and a
+        list of 4-tuples ``(train_loss_local, val_loss_local,
+        train_loss_global, val_loss_global)``, one per round, with
+        each loss array of shape ``(n_iter_per_round,)``.
 
     Raises
     ------
     ValueError
-        If n_rounds < 1
-    NotImplementedError
-        If n_rounds > 1
+        If ``n_rounds < 1``, or if ``tfmpe`` and ``opt`` types do
+        not match (both single, or both length-2 lists).
 
     Notes
     -----
-    - Not jittable: uses Python loop over rounds
-    - Currently only n_rounds=1 is implemented
-    - Each round makes TWO training calls
-    - Parameter progression: n=1 local -> n=n_groups local
-    - Return value: 4-tuple of losses per round (local & global)
+    - Not jittable: uses a Python loop over rounds.
+    - Each round makes TWO training calls.
+    - Parameter progression within a round: n=1 local -> n=n_groups.
+    - When a single ``tfmpe`` is shared across both fits, the
+      local-likelihood training tokens are concatenated into the
+      global-posterior training set.
     """
     # Validate inputs
     if n_rounds < 1:
@@ -323,6 +349,7 @@ def fit_bottom_up(
             functional_inputs=f_in_reshaped,
         )
 
+        tfmpe_local.eval()
         y_n = tfmpe_local.sample_posterior_batched(
             tokens,
             batch_size=sample_batch_size

@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from flax import nnx
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TransformerConfig:
     """Configuration container for transformer architecture parameters.
 
@@ -50,9 +50,9 @@ class TransformerConfig:
     label_dim: int = 32
     index_out_dim: int = 64
     pos_dim: int = 8
-    max_positions: int = 128
+    max_positions: int
     group_dim: int = 8
-    max_groups: int = 128
+    max_groups: int
     dropout: float = 0.0
     attention: Literal['linear'] | Literal['softmax'] | Literal['cudnn'] = 'softmax'
     activation: Callable = field(default_factory=lambda: nnx.relu)

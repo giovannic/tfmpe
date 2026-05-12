@@ -115,7 +115,9 @@ def tfmpe_instance(training_data: Tokens) -> TFMPE:
         n_encoder=1,
         n_heads=1,
         n_ff=1,
-        label_dim=2
+        label_dim=2,
+        max_positions=128,
+        max_groups=128,
     )
 
     rngs = nnx.Rngs(

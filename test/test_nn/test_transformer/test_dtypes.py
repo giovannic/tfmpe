@@ -21,6 +21,8 @@ def _make_transformer(tokens, precision_mode="float32"):
         n_heads=4,
         n_ff=2,
         label_dim=16,
+        max_positions=128,
+        max_groups=128,
         **PRECISION_MODES[precision_mode],
     )
     rngs = nnx.Rngs(0)

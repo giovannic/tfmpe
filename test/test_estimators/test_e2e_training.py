@@ -237,6 +237,8 @@ class TestE2ETrainingBottomUp:
             n_encoder=1,
             n_heads=1,
             n_ff=2,
+            max_positions=128,
+            max_groups=128,
         )
 
         rngs = nnx.Rngs(
@@ -439,6 +441,8 @@ class TestE2ETrainingHalfNormal:
             n_heads=1,
             n_ff=1,
             label_dim=2,
+            max_positions=128,
+            max_groups=128,
             **PRECISION_MODES[precision_mode],
         )
 

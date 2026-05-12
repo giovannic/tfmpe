@@ -23,6 +23,8 @@ class TestTransformerInit:
             n_ff=2,
             label_dim=32,
             index_out_dim=64,
+            max_positions=128,
+            max_groups=128,
             dropout=0.1,
         )
 
@@ -54,6 +56,8 @@ class TestTransformerForwardPass:
             n_ff=2,
             label_dim=16,
             index_out_dim=32,
+            max_positions=128,
+            max_groups=128,
             dropout=0.1,
         )
 
@@ -117,6 +121,8 @@ class TestTransformerForwardPass:
             n_ff=2,
             label_dim=16,
             index_out_dim=32,
+            max_positions=128,
+            max_groups=128,
             dropout=0.1,
         )
 
@@ -153,6 +159,8 @@ class TestTransformerEncode:
             n_ff=2,
             label_dim=16,
             index_out_dim=32,
+            max_positions=128,
+            max_groups=128,
             dropout=0.1,
         )
 
@@ -205,6 +213,8 @@ class TestTransformerSampleDimensions:
             n_ff=2,
             label_dim=16,
             index_out_dim=32,
+            max_positions=128,
+            max_groups=128,
             dropout=0.1,
         )
 
