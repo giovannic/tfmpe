@@ -42,8 +42,8 @@ docs = [
     "mkdocstrings[python]>=0.30.0",
 ]
 
-[tool.setuptools]
-packages = ["tfmpe"]
+[tool.setuptools.packages.find]
+include = ["tfmpe*"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
