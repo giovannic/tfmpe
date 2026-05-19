@@ -16,6 +16,12 @@ Install the core package with default dependencies:
 pip install -e .
 ```
 
+To install with GPU support (CUDA/cuDNN):
+
+```bash
+pip install -e .[gpu]
+```
+
 ### Development Installation
 
 For development work including testing and type checking:
